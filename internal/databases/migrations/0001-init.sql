@@ -1,9 +1,18 @@
+CREATE TABLE departamentos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nombre VARCHAR(100) NOT NULL UNIQUE,
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE usuarios (
     id VARCHAR(255) PRIMARY KEY NOT NULL UNIQUE,
     usernme VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     nombre VARCHAR(100) NOT NULL,
+    departamento VARCHAR(255) DEFAULT 'SIN DEPARTAMENTO'
     activo BOOLEAN NOT NULL DEFAULT TRUE,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -62,6 +71,10 @@ CREATE TABLE reportes_generados (
 -- ÍNDICES
 -- =========================================================================
 
+CREATE INDEX idx_departamentos_nombre ON departamentos (nombre);
+CREATE INDEX idx_departamentos_activo ON departamentos (activo) WHERE activo = TRUE;
+
+CREATE INDEX idx_usuarios_departamento ON usuarios (departamento);
 CREATE UNIQUE INDEX idx_usuarios_email_lower ON usuarios (LOWER(email));
 CREATE INDEX idx_usuarios_activo ON usuarios (activo) WHERE activo = TRUE;
 
