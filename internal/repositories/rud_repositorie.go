@@ -1,8 +1,8 @@
 package repositories
 
 import (
-	"Rud/internal/consts"
 	"database/sql"
+	"rud-api/internal/consts"
 )
 
 type RudRepositorie struct {

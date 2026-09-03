@@ -1,11 +1,11 @@
 package repositories
 
 import (
-	"Rud/internal/consts"
-	"Rud/internal/helpers"
-	"Rud/internal/types"
 	"context"
 	"database/sql"
+	"rud-api/internal/consts"
+	"rud-api/internal/helpers"
+	"rud-api/internal/types"
 	"time"
 )
 
