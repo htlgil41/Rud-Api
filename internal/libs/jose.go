@@ -7,7 +7,7 @@ import (
 
 type JoseManagerToken struct {
 	Signer            jose.Signer
-	TokenSecretAccess string
+	TokenSecretAccess []byte
 	ClaisnAccess      jwt.Claims
 }
 
@@ -33,7 +33,7 @@ func (j *JoseManagerToken) ValidateAccessToken(
 ) (PayloadCustom, error) {
 	parseSigne, errParseSigne := jwt.ParseSigned(
 		token,
-		[]jose.SignatureAlgorithm{jose.ES256},
+		[]jose.SignatureAlgorithm{jose.HS256},
 	)
 	if errParseSigne != nil {
 		return PayloadCustom{}, errParseSigne

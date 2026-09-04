@@ -6,6 +6,7 @@ import (
 	"rud-api/internal/config"
 	ctx "rud-api/internal/context"
 	"rud-api/internal/databases"
+	"rud-api/internal/helpers"
 	"rud-api/internal/libs"
 	"rud-api/internal/queues"
 	"rud-api/internal/repositories"
@@ -46,9 +47,18 @@ func main() {
 		rabbitPublisher.Ch = rabbitQueue.Ch
 	}
 
+	if errKeyGen := helpers.GeneratesLlavesES(); errKeyGen != nil {
+		log.Fatal("Error generando llave del signer:", errKeyGen)
+	}
+
+	keySigner, errKey := helpers.LoadLlavesES()
+	if errKey != nil {
+		log.Fatal("Error cargando llave del signer:", errKey)
+	}
+
 	signer, err := jose.NewSigner(
-		jose.SigningKey{Algorithm: jose.ES256, Key: []byte(cfg.JWT.Secret)},
-		(&jose.SignerOptions{}).WithType("JWT"),
+		jose.SigningKey{Algorithm: jose.HS256, Key: keySigner},
+		&jose.SignerOptions{},
 	)
 	if err != nil {
 		log.Fatal("Error creating JWT signer:", err)
@@ -56,7 +66,7 @@ func main() {
 
 	joseToken := &libs.JoseManagerToken{
 		Signer:            signer,
-		TokenSecretAccess: cfg.JWT.Secret,
+		TokenSecretAccess: keySigner,
 		ClaisnAccess: jwt.Claims{
 			Expiry: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 		},
