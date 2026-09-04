@@ -40,6 +40,10 @@ func main() {
 
 	moduloReporteRepo := &repositories.ModuloReporteRepositorioPg{Pool: pgDB.Pool}
 
+	mssqlDB := &databases.MssqlDatabase{}
+	mssqlDB.CreateMssqlDatabase(cfg.DB.CorporativoDB.URI)
+	analisisRepo := &repositories.AnalisisVentasRepositorie{Db: mssqlDB.Db}
+
 	rabbit := &queues.RabbitQueue{}
 	if errRabbit := rabbit.ConnectRabbit(cfg.Rabbit); errRabbit != nil {
 		log.Fatal("Error conectando a RabbitMQ:", errRabbit)
@@ -100,7 +104,7 @@ func main() {
 				}
 			}()
 
-			procesarMensaje(msg, moduloReporteRepo)
+			procesarMensaje(msg, moduloReporteRepo, analisisRepo)
 		}(message)
 	}
 
@@ -108,7 +112,7 @@ func main() {
 	log.Println("Worker finalizado correctamente")
 }
 
-func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepositorioPg) {
+func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepositorioPg, analisisRepo *repositories.AnalisisVentasRepositorie) {
 	var bitacora strings.Builder
 	bitacora.WriteString("Evento recibido para su procesamiento")
 
@@ -117,21 +121,26 @@ func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepo
 
 	var evento types.ReporteSolicitadoEvent
 	if errUnmarshal := json.Unmarshal(message.Body, &evento); errUnmarshal != nil {
-		bitacora.WriteString("\nError parseando el evento: " + errUnmarshal.Error())
+		bitacora.WriteString("\nError parseando el evento: ")
+		bitacora.WriteString(errUnmarshal.Error())
 		log.Printf("Error parseando el evento: %v", errUnmarshal)
-		message.Nack(false, false)
+		message.Ack(false)
 		return
 	}
 
-	bitacora.WriteString("\nEvento: reporte " + evento.ReporteID + " del usuario " + evento.UsuarioID)
+	bitacora.WriteString("\nEvento: reporte ")
+	bitacora.WriteString(evento.ReporteID)
+	bitacora.WriteString(" del usuario ")
+	bitacora.WriteString(evento.UsuarioID)
 
 	hasAccess, errHas := repo.HasModuloReporte(evento.UsuarioID, evento.ModuloReporteID)
 	if errHas != nil {
-		bitacora.WriteString("\nError validando permisos del usuario: " + errHas.Error())
+		bitacora.WriteString("\nError validando permisos del usuario: ")
+		bitacora.WriteString(errHas.Error())
 		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
 			log.Printf("Error actualizando estado del reporte: %v", errEstado)
 		}
-		message.Nack(false, true)
+		message.Ack(false)
 		return
 	}
 
@@ -149,7 +158,67 @@ func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepo
 		log.Printf("Error actualizando estado del reporte: %v", errEstado)
 	}
 
-	time.Sleep(20 * time.Second)
+	/* PROCESAMIENTO DE TAREA COMPLETA GENERACION DE REPORTE DIRECTA   */
+
+	start, errStart := time.Parse("2006-01-02", evento.Parametros[0])
+	if errStart != nil {
+		bitacora.WriteString("\nError al parsear el parametro a fecha")
+		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
+			log.Printf("Error actualizando estado del reporte: %v", errEstado)
+		}
+
+		message.Ack(false)
+		return
+	}
+	end, errend := time.Parse("2006-01-02", evento.Parametros[1])
+	if errend != nil {
+		bitacora.WriteString("\nError al parsear el parametro a fecha")
+		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
+			log.Printf("Error actualizando estado del reporte: %v", errEstado)
+		}
+
+		message.Ack(false)
+		return
+	}
+
+	a, errDatesGenerates := helpers.GeneratesDatesNoMayorToday(start, end)
+	if errDatesGenerates != nil {
+		message.Ack(false)
+		return
+	}
+	fmt.Fprintf(&bitacora, "\nFechas generadas correctamente (%d)", len(a))
+	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
+		log.Printf("Error actualizando estado del reporte: %v", errEstado)
+	}
+
+	departamentos, errDepartamentos := analisisRepo.GetDepartamentosCodigos()
+	if errDepartamentos != nil {
+		bitacora.WriteString("\nError obteniendo departamentos: ")
+		bitacora.WriteString(errDepartamentos.Error())
+		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
+			log.Printf("Error actualizando estado del reporte: %v", errEstado)
+		}
+		message.Ack(false)
+		return
+	}
+	bitacora.WriteString("\nDepartamentos obtenidos correctamente")
+	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
+		log.Printf("Error actualizando estado del reporte: %v", errEstado)
+	}
+
+	for _, f := range a {
+		analisisDepartamento, errDep := analisisRepo.GetVentasDepartamento(
+			f,
+			f,
+			helpers.TransformSliceToInSqlString(departamentos),
+		)
+		if errDep != nil {
+			fmt.Println(errDep)
+			continue
+		}
+
+		fmt.Println(analisisDepartamento)
+	}
 
 	bitacora.WriteString("\nReporte construido correctamente")
 	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteCompletado, bitacora.String()); errEstado != nil {
