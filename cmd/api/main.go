@@ -35,14 +35,15 @@ func main() {
 	moduloReporteRepo := &repositories.ModuloReporteRepositorioPg{Pool: pgDB.Pool}
 
 	rabbitQueue := &queues.RabbitQueue{}
-	if errRabbit := rabbitQueue.ConnectRabbit(cfg.Rabbit); errRabbit != nil {
-		log.Printf("Advertencia: RabbitMQ no disponible, las solicitudes de reporte fallaran: %v", errRabbit)
-	}
-
 	rabbitPublisher := &repositories.RabbitPublisherRepositorio{
-		Ch:         rabbitQueue.Ch,
+		Ch:         nil,
 		Exchange:   cfg.Rabbit.Exchange,
 		RoutingKey: cfg.Reportes.RoutingKey,
+	}
+	if errRabbit := rabbitQueue.ConnectRabbit(cfg.Rabbit); errRabbit != nil {
+		log.Printf("Advertencia: RabbitMQ no disponible, las solicitudes de reporte fallaran: %v", errRabbit)
+	} else {
+		rabbitPublisher.Ch = rabbitQueue.Ch
 	}
 
 	signer, err := jose.NewSigner(

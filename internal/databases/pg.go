@@ -2,10 +2,10 @@ package databases
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -14,25 +14,23 @@ type PgDatabase struct {
 }
 
 func (s *PgDatabase) CreatePgDatabase(host string, port int32, user, password, dbname string) {
-	pool, errPool := pgxpool.NewWithConfig(context.Background(), &pgxpool.Config{
-		ConnConfig: &pgx.ConnConfig{
-			Config: pgconn.Config{
-				Host:           host,
-				Port:           uint16(port),
-				User:           user,
-				Password:       password,
-				Database:       dbname,
-				ConnectTimeout: 10 * time.Second,
-			},
-		},
-		MaxConns:          10,
-		MinConns:          1,
-		MaxConnLifetime:   10 * time.Minute,
-		MaxConnIdleTime:   time.Minute,
-		HealthCheckPeriod: time.Minute,
-	})
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", user, password, host, port, dbname)
+
+	poolConfig, errConfig := pgxpool.ParseConfig(dsn)
+	if errConfig != nil {
+		log.Fatalf("Error parsing pg config: %v", errConfig)
+	}
+
+	poolConfig.ConnConfig.ConnectTimeout = 10 * time.Second
+	poolConfig.MaxConns = 10
+	poolConfig.MinConns = 1
+	poolConfig.MaxConnLifetime = 10 * time.Minute
+	poolConfig.MaxConnIdleTime = time.Minute
+	poolConfig.HealthCheckPeriod = time.Minute
+
+	pool, errPool := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if errPool != nil {
-		return
+		log.Fatalf("Error creating pg pool: %v", errPool)
 	}
 	s.Pool = pool
 }

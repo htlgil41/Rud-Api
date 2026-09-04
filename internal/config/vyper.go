@@ -60,7 +60,7 @@ type ServerConfig struct {
 }
 
 func LoadConfigWithVyper() *Config {
-	var config Config
+	var config RootConfig
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	viper.SetConfigFile("")
@@ -74,5 +74,5 @@ func LoadConfigWithVyper() *Config {
 	}
 
 	fmt.Println("Load Configuration with viper")
-	return &config
+	return &config.Config
 }
