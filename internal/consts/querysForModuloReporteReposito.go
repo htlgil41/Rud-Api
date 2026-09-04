@@ -27,6 +27,18 @@ var (
 		  AND modulo_reporte_id = $2
 	`
 
+	QUERY_PREPARE_ASSIGN_MODULO_REPORTE = `
+		INSERT INTO usuario_modulos_reportes (usuario_id, modulo_reporte_id)
+		VALUES ($1, $2)
+		ON CONFLICT (usuario_id, modulo_reporte_id) DO NOTHING
+	`
+
+	QUERY_PREPARE_DELETE_ASIGNACION_MODULO_REPORTE = `
+		DELETE FROM usuario_modulos_reportes
+		WHERE usuario_id = $1
+		  AND modulo_reporte_id = $2
+	`
+
 	QUERY_PREPARE_CREATE_MODULO_REPORTE = `
 		INSERT INTO modulos_reportes (id, nombre, descripcion, params_size, query_plane, query_prepare)
 		VALUES ($1, $2, $3, $4, $5, $6)

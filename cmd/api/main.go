@@ -98,6 +98,15 @@ func main() {
 		protected.GET("/reportes", ctx.GetMisReportesHandler(moduloReporteRepo))
 		protected.POST("/reportes/solicitar", ctx.SolicitarReporteHandler(moduloReporteRepo, rabbitPublisher))
 		protected.POST("/reportes/cancelar", ctx.CancelarReporteHandler(moduloReporteRepo))
+
+		gestionarUsuarios := protected.Group("/usuarios")
+		gestionarUsuarios.Use(ctx.RequireModulo(usuarioRepo, "GESTIONAR_USUARIOS"))
+		{
+			gestionarUsuarios.POST("/:usuario_id/modulos", ctx.AsignarModuloHandler(usuarioRepo))
+			gestionarUsuarios.DELETE("/:usuario_id/modulos/:modulo_id", ctx.EliminarModuloHandler(usuarioRepo))
+			gestionarUsuarios.POST("/:usuario_id/modulos-reportes", ctx.AsignarModuloReporteHandler(moduloReporteRepo))
+			gestionarUsuarios.DELETE("/:usuario_id/modulos-reportes/:modulo_reporte_id", ctx.EliminarModuloReporteHandler(moduloReporteRepo))
+		}
 	}
 
 	rudAdmin := router.Group("/api/rud-admin")

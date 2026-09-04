@@ -175,3 +175,35 @@ func (r *UsuarioRepositoriePg) HasModulo(usuarioID string, moduloNombre string) 
 	}
 	return count > 0, nil
 }
+
+func (r *UsuarioRepositoriePg) AsignarModulo(usuarioID string, moduloID string) error {
+	commandTag, err := r.Pool.Exec(
+		context.Background(),
+		consts.QUERY_PREPARE_ASSIGN_MODULO,
+		usuarioID,
+		moduloID,
+	)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("El modulo ya se encuentra asignado al usuario o no existe")
+	}
+	return nil
+}
+
+func (r *UsuarioRepositoriePg) EliminarModulo(usuarioID string, moduloID string) error {
+	commandTag, err := r.Pool.Exec(
+		context.Background(),
+		consts.QUERY_PREPARE_DELETE_ASIGNACION_MODULO,
+		usuarioID,
+		moduloID,
+	)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("El modulo no se encuentra asignado al usuario")
+	}
+	return nil
+}

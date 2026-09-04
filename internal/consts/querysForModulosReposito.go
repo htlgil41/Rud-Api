@@ -24,6 +24,12 @@ var (
 		ON CONFLICT (usuario_id, modulo_id) DO NOTHING
 	`
 
+	QUERY_PREPARE_DELETE_ASIGNACION_MODULO = `
+		DELETE FROM usuario_modulos
+		WHERE usuario_id = $1
+		  AND modulo_id = $2
+	`
+
 	QUERY_PREPARE_GET_MODULO_BY_NOMBRE = `
 		SELECT id, nombre, tipo, descripcion
 		FROM modulos

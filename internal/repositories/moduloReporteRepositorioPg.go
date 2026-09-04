@@ -78,6 +78,38 @@ func (r *ModuloReporteRepositorioPg) HasModuloReporte(usuarioID string, moduloRe
 	return count > 0, nil
 }
 
+func (r *ModuloReporteRepositorioPg) AsignarModuloReporte(usuarioID string, moduloReporteID string) error {
+	commandTag, err := r.Pool.Exec(
+		context.Background(),
+		consts.QUERY_PREPARE_ASSIGN_MODULO_REPORTE,
+		usuarioID,
+		moduloReporteID,
+	)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("El modulo de reporte ya se encuentra asignado al usuario o no existe")
+	}
+	return nil
+}
+
+func (r *ModuloReporteRepositorioPg) EliminarModuloReporte(usuarioID string, moduloReporteID string) error {
+	commandTag, err := r.Pool.Exec(
+		context.Background(),
+		consts.QUERY_PREPARE_DELETE_ASIGNACION_MODULO_REPORTE,
+		usuarioID,
+		moduloReporteID,
+	)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("El modulo de reporte no se encuentra asignado al usuario")
+	}
+	return nil
+}
+
 func (r *ModuloReporteRepositorioPg) CreateModuloReporte(mr types.ModuloReporte) error {
 	_, err := r.Pool.Exec(
 		context.Background(),
