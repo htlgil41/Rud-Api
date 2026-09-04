@@ -23,7 +23,7 @@ func main() {
 		cfg.DB.PGDBRud.Port,
 		cfg.DB.PGDBRud.Username,
 		cfg.DB.PGDBRud.Password,
-		"rud",
+		cfg.DB.PGDBRud.DB,
 	)
 
 	usuarioRepo := &repositories.UsuarioRepositoriePg{Pool: pgDB.Pool}

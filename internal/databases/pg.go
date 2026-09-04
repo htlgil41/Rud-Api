@@ -13,12 +13,12 @@ type PgDatabase struct {
 	Pool *pgxpool.Pool
 }
 
-func (s *PgDatabase) CreatePgDatabase(host, port, user, password, dbname string) {
+func (s *PgDatabase) CreatePgDatabase(host string, port int32, user, password, dbname string) {
 	pool, errPool := pgxpool.NewWithConfig(context.Background(), &pgxpool.Config{
 		ConnConfig: &pgx.ConnConfig{
 			Config: pgconn.Config{
 				Host:           host,
-				Port:           5432,
+				Port:           uint16(port),
 				User:           user,
 				Password:       password,
 				Database:       dbname,

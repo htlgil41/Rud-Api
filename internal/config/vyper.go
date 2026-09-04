@@ -27,9 +27,10 @@ type DBConfig struct {
 
 type PGDBRudConfig struct {
 	Host     string `mapstructure:"host"`
-	Port     string `mapstructure:"port"`
+	Port     int32  `mapstructure:"port"`
 	Username string `mapstructure:"username"`
 	Password string `mapstructure:"password"`
+	DB       string `mapstructure:"db"`
 }
 
 type CorporativoDBConfig struct {
