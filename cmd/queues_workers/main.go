@@ -12,6 +12,7 @@ import (
 	"rud-api/internal/queues"
 	"rud-api/internal/repositories"
 	"rud-api/internal/types"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -107,12 +108,21 @@ func main() {
 }
 
 func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepositorioPg) {
+	var logmessages strings.Builder
 	messageBody := string(message.Body)
 	log.Printf("Mensaje recibido: %s", messageBody)
 
 	var evento types.ReporteSolicitadoEvent
 	if errUnmarshal := json.Unmarshal(message.Body, &evento); errUnmarshal != nil {
 		log.Printf("Error parseando el evento: %v", errUnmarshal)
+
+		logmessages.WriteString("\n# Error parseando el evento")
+		if errMarcar := repo.MarcarReporteNoAutorizado(
+			evento.ReporteID,
+			logmessages.String(),
+		); errMarcar != nil {
+		}
+
 		message.Nack(false, false)
 		return
 	}
@@ -120,14 +130,24 @@ func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepo
 	hasAccess, errHas := repo.HasModuloReporte(evento.UsuarioID, evento.ModuloReporteID)
 	if errHas != nil {
 		log.Printf("Error validando permisos del usuario: %v", errHas)
+		logmessages.WriteString("\n# Error validando permisos del usuario")
+
+		if errMarcar := repo.MarcarReporteNoAutorizado(
+			evento.ReporteID,
+			logmessages.String(),
+		); errMarcar != nil {
+		}
+
 		message.Nack(false, true)
 		return
 	}
 	if !hasAccess {
 		log.Printf("Usuario %s sin permisos para el reporte %s, marcando como NO_AUTORIZADO", evento.UsuarioID, evento.ModuloReporteID)
+		logmessages.WriteString("\n# Sin permisos para el reporte marcado como NO_AUTORIZADO")
+
 		if errMarcar := repo.MarcarReporteNoAutorizado(
 			evento.ReporteID,
-			"NO SE ENCONTRARON PERMISOS PARA GENERAR REPORTE",
+			logmessages.String(),
 		); errMarcar != nil {
 			log.Printf("Error marcando reporte como NO_AUTORIZADO: %v", errMarcar)
 			message.Nack(false, true)
@@ -138,6 +158,7 @@ func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepo
 	}
 
 	log.Printf("Usuario %s autorizado, construyendo reporte %s", evento.UsuarioID, evento.ReporteID)
+	logmessages.WriteString("\n# Autorizado todo listo para construir el reporte")
 	time.Sleep(20 * time.Second)
 
 	if errAck := message.Ack(false); errAck != nil {
