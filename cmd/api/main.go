@@ -31,6 +31,7 @@ func main() {
 	)
 
 	usuarioRepo := &repositories.UsuarioRepositoriePg{Pool: pgDB.Pool}
+	moduloReporteRepo := &repositories.ModuloReporteRepositorioPg{Pool: pgDB.Pool}
 
 	signer, err := jose.NewSigner(
 		jose.SigningKey{Algorithm: jose.ES256, Key: []byte(cfg.JWT.Secret)},
@@ -71,6 +72,8 @@ func main() {
 	{
 		protected.POST("/usuarios", ctx.RequireModulo(usuarioRepo, "GESTIONAR_USUARIOS"), ctx.RegisterUsuarioHandler(usuarioRepo))
 		protected.GET("/mis-modulos", ctx.GetMisModulosHandler(usuarioRepo))
+		protected.GET("/reportes", ctx.GetMisReportesHandler(moduloReporteRepo))
+		protected.POST("/reportes/solicitar", ctx.SolicitarReporteHandler(moduloReporteRepo))
 	}
 
 	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

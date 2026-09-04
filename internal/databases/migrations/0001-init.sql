@@ -38,6 +38,7 @@ CREATE TABLE modulos_reportes (
     id VARCHAR(255) PRIMARY KEY NOT NULL UNIQUE,
     nombre VARCHAR(150) NOT NULL,
     descripcion TEXT,
+    params_size INT NOT NULL DEFAULT 0,
     query_plane TEXT NOT NULL,
     query_prepare TEXT NOT NULL,
     activo BOOLEAN NOT NULL DEFAULT TRUE,
