@@ -14,3 +14,9 @@ type ReporteGenerado struct {
 	IniciadoEn          *time.Time
 	CompletadoEn        *time.Time
 }
+
+type ReportesGeneradosPaginados struct {
+	Reportes   []ReporteGenerado
+	NextCursor string
+	HasMore    bool
+}

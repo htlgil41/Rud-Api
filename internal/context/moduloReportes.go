@@ -15,20 +15,35 @@ type SolicitudReporteBody struct {
 	Parametros []string `json:"parametros" binding:"required"`
 }
 
+func parseCursor(cursorStr string) *string {
+	if cursorStr == "" {
+		return nil
+	}
+	return &cursorStr
+}
+
 func GetMisReportesHandler(repo *repositories.ModuloReporteRepositorioPg) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
+		cursorStr := c.Query("cursor")
+		cursor := parseCursor(cursorStr)
 
-		reportes, err := repo.GetUsuarioModuloReportes(userID)
+		result, err := repo.GetReportesGeneradosByUsuario(userID, cursor)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error obteniendo reportes"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"user_id":  userID,
-			"reportes": reportes,
-		})
+		response := gin.H{
+			"user_id":   userID,
+			"reportes":  result.Reportes,
+			"has_more":  result.HasMore,
+		}
+		if result.NextCursor != "" {
+			response["next_cursor"] = result.NextCursor
+		}
+
+		c.JSON(http.StatusOK, response)
 	}
 }
 
@@ -93,5 +108,53 @@ func SolicitarReporteHandler(repo *repositories.ModuloReporteRepositorioPg) gin.
 			"estado":     reporteGenerado.Estado,
 			"mensaje":    "Reporte en cola de procesamiento",
 		})
+	}
+}
+
+type CancelarReporteBody struct {
+	ReporteID string `json:"reporte_id" binding:"required"`
+}
+
+func CancelarReporteHandler(repo *repositories.ModuloReporteRepositorioPg) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body CancelarReporteBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		userID := c.GetString("user_id")
+
+		if err := repo.CancelReporteGenerado(body.ReporteID, userID); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Reporte no encontrado o no pertenece al usuario"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"mensaje": "Reporte cancelado correctamente",
+		})
+	}
+}
+
+func GetAllReportesHandler(repo *repositories.ModuloReporteRepositorioPg) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cursorStr := c.Query("cursor")
+		cursor := parseCursor(cursorStr)
+
+		result, err := repo.GetAllReportesGenerados(cursor)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error obteniendo reportes"})
+			return
+		}
+
+		response := gin.H{
+			"reportes": result.Reportes,
+			"has_more": result.HasMore,
+		}
+		if result.NextCursor != "" {
+			response["next_cursor"] = result.NextCursor
+		}
+
+		c.JSON(http.StatusOK, response)
 	}
 }

@@ -74,6 +74,7 @@ func main() {
 		protected.GET("/mis-modulos", ctx.GetMisModulosHandler(usuarioRepo))
 		protected.GET("/reportes", ctx.GetMisReportesHandler(moduloReporteRepo))
 		protected.POST("/reportes/solicitar", ctx.SolicitarReporteHandler(moduloReporteRepo))
+		protected.POST("/reportes/cancelar", ctx.CancelarReporteHandler(moduloReporteRepo))
 	}
 
 	rudAdmin := router.Group("/api/rud-admin")
@@ -82,6 +83,7 @@ func main() {
 	{
 		rudAdmin.POST("/modulos-reportes", ctx.CrearModuloReporteHandler(moduloReporteRepo))
 		rudAdmin.GET("/modulos-reportes", ctx.ListarModuloReportesHandler(moduloReporteRepo))
+		rudAdmin.GET("/reportes", ctx.GetAllReportesHandler(moduloReporteRepo))
 	}
 
 	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

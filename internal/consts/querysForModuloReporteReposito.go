@@ -38,4 +38,28 @@ var (
 		WHERE activo = TRUE
 		ORDER BY nombre
 	`
+
+	QUERY_PREPARE_CANCEL_REPORTE_GENERADO = `
+		UPDATE reportes_generados
+		SET estado = 'NO_AVAILABLE'
+		WHERE id = ? AND usuario_id = ?
+	`
+
+	QUERY_PREPARE_GET_REPORTES_GENERADOS_BY_USUARIO = `
+		SELECT id, modulo_reporte_id, usuario_id, estado, solicitado_en
+		FROM reportes_generados
+		WHERE usuario_id = ?
+		  AND estado != 'NO_AVAILABLE'
+		  AND (?::varchar IS NULL OR id < ?)
+		ORDER BY id DESC
+		LIMIT 16
+	`
+
+	QUERY_PREPARE_GET_ALL_REPORTES_GENERADOS = `
+		SELECT id, modulo_reporte_id, usuario_id, estado, solicitado_en
+		FROM reportes_generados
+		WHERE (?::varchar IS NULL OR id < ?)
+		ORDER BY id DESC
+		LIMIT 16
+	`
 )
