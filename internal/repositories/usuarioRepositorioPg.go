@@ -70,6 +70,10 @@ func (r *UsuarioRepositoriePg) UpdateDetailUsuario(update_usuario types.UsuarioR
 	commandUpdateUsuario, errCommandUpdateUsuario := r.Pool.Exec(
 		context.Background(),
 		consts.QUERY_PREPARE_UPDATE_USUARIO_REPOPG,
+		update_usuario.Usernme,
+		update_usuario.Email,
+		update_usuario.Departamento,
+		update_usuario.ID,
 	)
 	if errCommandUpdateUsuario != nil {
 		return types.UsuarioRespositorie{}, errCommandUpdateUsuario

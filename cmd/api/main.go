@@ -98,6 +98,7 @@ func main() {
 		protected.GET("/reportes", ctx.GetMisReportesHandler(moduloReporteRepo))
 		protected.POST("/reportes/solicitar", ctx.SolicitarReporteHandler(moduloReporteRepo, rabbitPublisher))
 		protected.POST("/reportes/cancelar", ctx.CancelarReporteHandler(moduloReporteRepo))
+		protected.PUT("/mi-usuario", ctx.ActualizarPerfilUsuarioHandler(usuarioRepo))
 
 		gestionarUsuarios := protected.Group("/usuarios")
 		gestionarUsuarios.Use(ctx.RequireModulo(usuarioRepo, "GESTIONAR_USUARIOS"))
@@ -106,6 +107,7 @@ func main() {
 			gestionarUsuarios.DELETE("/:usuario_id/modulos/:modulo_id", ctx.EliminarModuloHandler(usuarioRepo))
 			gestionarUsuarios.POST("/:usuario_id/modulos-reportes", ctx.AsignarModuloReporteHandler(moduloReporteRepo))
 			gestionarUsuarios.DELETE("/:usuario_id/modulos-reportes/:modulo_reporte_id", ctx.EliminarModuloReporteHandler(moduloReporteRepo))
+			gestionarUsuarios.PUT("/:usuario_id/password", ctx.ResetearPasswordHandler(usuarioRepo))
 		}
 	}
 
