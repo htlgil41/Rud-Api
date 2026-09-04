@@ -26,4 +26,16 @@ var (
 		WHERE usuario_id = ?
 		  AND modulo_reporte_id = ?
 	`
+
+	QUERY_PREPARE_CREATE_MODULO_REPORTE = `
+		INSERT INTO modulos_reportes (id, nombre, descripcion, params_size, query_plane, query_prepare)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	QUERY_PREPARE_GET_ALL_MODULO_REPORTES = `
+		SELECT id, nombre, descripcion, params_size
+		FROM modulos_reportes
+		WHERE activo = TRUE
+		ORDER BY nombre
+	`
 )

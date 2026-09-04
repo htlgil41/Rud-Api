@@ -76,3 +76,43 @@ func (r *ModuloReporteRepositorioPg) HasModuloReporte(usuarioID string, moduloRe
 	}
 	return count > 0, nil
 }
+
+func (r *ModuloReporteRepositorioPg) CreateModuloReporte(mr types.ModuloReporte) error {
+	_, err := r.Pool.Exec(
+		context.Background(),
+		consts.QUERY_PREPARE_CREATE_MODULO_REPORTE,
+		mr.ID,
+		mr.Nombre,
+		mr.Descripcion,
+		mr.ParamsSize,
+		mr.QueryPlane,
+		mr.QueryPrepare,
+	)
+	return err
+}
+
+func (r *ModuloReporteRepositorioPg) GetAllModuloReportes() ([]types.ModuloReporte, error) {
+	rows, errRows := r.Pool.Query(
+		context.Background(),
+		consts.QUERY_PREPARE_GET_ALL_MODULO_REPORTES,
+	)
+	if errRows != nil {
+		return []types.ModuloReporte{}, errRows
+	}
+	defer rows.Close()
+
+	var reportes []types.ModuloReporte
+	for rows.Next() {
+		var mr types.ModuloReporte
+		if errScan := rows.Scan(&mr.ID, &mr.Nombre, &mr.Descripcion, &mr.ParamsSize); errScan != nil {
+			continue
+		}
+		reportes = append(reportes, mr)
+	}
+
+	if errRows := rows.Err(); errRows != nil {
+		return []types.ModuloReporte{}, errRows
+	}
+
+	return reportes, nil
+}

@@ -76,6 +76,14 @@ func main() {
 		protected.POST("/reportes/solicitar", ctx.SolicitarReporteHandler(moduloReporteRepo))
 	}
 
+	rudAdmin := router.Group("/api/rud-admin")
+	rudAdmin.Use(ctx.AuthMiddleware(joseToken))
+	rudAdmin.Use(ctx.RequireModulo(usuarioRepo, "RUD_ADMIN"))
+	{
+		rudAdmin.POST("/modulos-reportes", ctx.CrearModuloReporteHandler(moduloReporteRepo))
+		rudAdmin.GET("/modulos-reportes", ctx.ListarModuloReportesHandler(moduloReporteRepo))
+	}
+
 	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	fmt.Printf("Starting Rud-Api server on %s\n", serverAddr)
 
