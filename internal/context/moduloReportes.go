@@ -38,9 +38,9 @@ func GetMisReportesHandler(repo *repositories.ModuloReporteRepositorioPg) gin.Ha
 		}
 
 		response := gin.H{
-			"user_id":   userID,
-			"reportes":  result.Reportes,
-			"has_more":  result.HasMore,
+			"user_id":  userID,
+			"reportes": result.Reportes,
+			"has_more": result.HasMore,
 		}
 		if result.NextCursor != "" {
 			response["next_cursor"] = result.NextCursor

@@ -20,6 +20,13 @@ var (
 		VALUES ($1, $2, $3, 'PENDIENTE')
 	`
 
+	QUERY_PREPARE_MARCAR_REPORTE_NO_AUTORIZADO = `
+		UPDATE reportes_generados
+		SET estado = 'NO_AUTORIZADO',
+		    detalle_construccion = $2
+		WHERE id = $1
+	`
+
 	QUERY_PREPARE_HAS_MODULO_REPORTE = `
 		SELECT COUNT(1)
 		FROM usuario_modulos_reportes

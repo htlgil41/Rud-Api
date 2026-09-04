@@ -64,6 +64,22 @@ func (r *ModuloReporteRepositorioPg) CreateReporteGenerado(reporte types.Reporte
 	return err
 }
 
+func (r *ModuloReporteRepositorioPg) MarcarReporteNoAutorizado(reporteID string, detalle string) error {
+	commandTag, err := r.Pool.Exec(
+		context.Background(),
+		consts.QUERY_PREPARE_MARCAR_REPORTE_NO_AUTORIZADO,
+		reporteID,
+		detalle,
+	)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("Reporte no encontrado")
+	}
+	return nil
+}
+
 func (r *ModuloReporteRepositorioPg) HasModuloReporte(usuarioID string, moduloReporteID string) (bool, error) {
 	var count int
 	err := r.Pool.QueryRow(

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"rud-api/internal/config"
+	"rud-api/internal/databases"
 	"rud-api/internal/helpers"
 	"rud-api/internal/queues"
+	"rud-api/internal/repositories"
+	"rud-api/internal/types"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +26,17 @@ func main() {
 	if cfg == nil {
 		log.Fatal("Error loading configuration")
 	}
+
+	pgDB := &databases.PgDatabase{}
+	pgDB.CreatePgDatabase(
+		cfg.DB.PGDBRud.Host,
+		cfg.DB.PGDBRud.Port,
+		cfg.DB.PGDBRud.Username,
+		cfg.DB.PGDBRud.Password,
+		cfg.DB.PGDBRud.DB,
+	)
+
+	moduloReporteRepo := &repositories.ModuloReporteRepositorioPg{Pool: pgDB.Pool}
 
 	rabbit := &queues.RabbitQueue{}
 	if errRabbit := rabbit.ConnectRabbit(cfg.Rabbit); errRabbit != nil {
@@ -83,7 +98,7 @@ func main() {
 				}
 			}()
 
-			procesarMensaje(msg)
+			procesarMensaje(msg, moduloReporteRepo)
 		}(message)
 	}
 
@@ -91,10 +106,38 @@ func main() {
 	log.Println("Worker finalizado correctamente")
 }
 
-func procesarMensaje(message amqp.Delivery) {
+func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepositorioPg) {
 	messageBody := string(message.Body)
 	log.Printf("Mensaje recibido: %s", messageBody)
 
+	var evento types.ReporteSolicitadoEvent
+	if errUnmarshal := json.Unmarshal(message.Body, &evento); errUnmarshal != nil {
+		log.Printf("Error parseando el evento: %v", errUnmarshal)
+		message.Nack(false, false)
+		return
+	}
+
+	hasAccess, errHas := repo.HasModuloReporte(evento.UsuarioID, evento.ModuloReporteID)
+	if errHas != nil {
+		log.Printf("Error validando permisos del usuario: %v", errHas)
+		message.Nack(false, true)
+		return
+	}
+	if !hasAccess {
+		log.Printf("Usuario %s sin permisos para el reporte %s, marcando como NO_AUTORIZADO", evento.UsuarioID, evento.ModuloReporteID)
+		if errMarcar := repo.MarcarReporteNoAutorizado(
+			evento.ReporteID,
+			"NO SE ENCONTRARON PERMISOS PARA GENERAR REPORTE",
+		); errMarcar != nil {
+			log.Printf("Error marcando reporte como NO_AUTORIZADO: %v", errMarcar)
+			message.Nack(false, true)
+			return
+		}
+		message.Ack(false)
+		return
+	}
+
+	log.Printf("Usuario %s autorizado, construyendo reporte %s", evento.UsuarioID, evento.ReporteID)
 	time.Sleep(20 * time.Second)
 
 	if errAck := message.Ack(false); errAck != nil {
