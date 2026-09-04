@@ -64,11 +64,12 @@ func (r *ModuloReporteRepositorioPg) CreateReporteGenerado(reporte types.Reporte
 	return err
 }
 
-func (r *ModuloReporteRepositorioPg) MarcarReporteNoAutorizado(reporteID string, detalle string) error {
+func (r *ModuloReporteRepositorioPg) ActualizarEstadoReporte(reporteID string, estado string, detalle string) error {
 	commandTag, err := r.Pool.Exec(
 		context.Background(),
-		consts.QUERY_PREPARE_MARCAR_REPORTE_NO_AUTORIZADO,
+		consts.QUERY_PREPARE_ACTUALIZAR_ESTADO_REPORTE,
 		reporteID,
+		estado,
 		detalle,
 	)
 	if err != nil {

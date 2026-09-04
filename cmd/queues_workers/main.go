@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"rud-api/internal/config"
+	"rud-api/internal/consts"
 	"rud-api/internal/databases"
 	"rud-api/internal/helpers"
 	"rud-api/internal/queues"
@@ -108,58 +109,52 @@ func main() {
 }
 
 func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepositorioPg) {
-	var logmessages strings.Builder
+	var bitacora strings.Builder
+	bitacora.WriteString("Evento recibido para su procesamiento")
+
 	messageBody := string(message.Body)
 	log.Printf("Mensaje recibido: %s", messageBody)
 
 	var evento types.ReporteSolicitadoEvent
 	if errUnmarshal := json.Unmarshal(message.Body, &evento); errUnmarshal != nil {
+		bitacora.WriteString("\nError parseando el evento: " + errUnmarshal.Error())
 		log.Printf("Error parseando el evento: %v", errUnmarshal)
-
-		logmessages.WriteString("\n# Error parseando el evento")
-		if errMarcar := repo.MarcarReporteNoAutorizado(
-			evento.ReporteID,
-			logmessages.String(),
-		); errMarcar != nil {
-		}
-
 		message.Nack(false, false)
 		return
 	}
 
+	bitacora.WriteString("\nEvento: reporte " + evento.ReporteID + " del usuario " + evento.UsuarioID)
+
 	hasAccess, errHas := repo.HasModuloReporte(evento.UsuarioID, evento.ModuloReporteID)
 	if errHas != nil {
-		log.Printf("Error validando permisos del usuario: %v", errHas)
-		logmessages.WriteString("\n# Error validando permisos del usuario")
-
-		if errMarcar := repo.MarcarReporteNoAutorizado(
-			evento.ReporteID,
-			logmessages.String(),
-		); errMarcar != nil {
+		bitacora.WriteString("\nError validando permisos del usuario: " + errHas.Error())
+		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
+			log.Printf("Error actualizando estado del reporte: %v", errEstado)
 		}
-
 		message.Nack(false, true)
 		return
 	}
-	if !hasAccess {
-		log.Printf("Usuario %s sin permisos para el reporte %s, marcando como NO_AUTORIZADO", evento.UsuarioID, evento.ModuloReporteID)
-		logmessages.WriteString("\n# Sin permisos para el reporte marcado como NO_AUTORIZADO")
 
-		if errMarcar := repo.MarcarReporteNoAutorizado(
-			evento.ReporteID,
-			logmessages.String(),
-		); errMarcar != nil {
-			log.Printf("Error marcando reporte como NO_AUTORIZADO: %v", errMarcar)
-			message.Nack(false, true)
-			return
+	if !hasAccess {
+		bitacora.WriteString("\nNo se encontraron permisos para generar el reporte")
+		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteNoAutorizado, bitacora.String()); errEstado != nil {
+			log.Printf("Error actualizando estado del reporte: %v", errEstado)
 		}
 		message.Ack(false)
 		return
 	}
 
-	log.Printf("Usuario %s autorizado, construyendo reporte %s", evento.UsuarioID, evento.ReporteID)
-	logmessages.WriteString("\n# Autorizado todo listo para construir el reporte")
+	bitacora.WriteString("\nPermisos validados correctamente, iniciando construccion del reporte")
+	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
+		log.Printf("Error actualizando estado del reporte: %v", errEstado)
+	}
+
 	time.Sleep(20 * time.Second)
+
+	bitacora.WriteString("\nReporte construido correctamente")
+	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteCompletado, bitacora.String()); errEstado != nil {
+		log.Printf("Error actualizando estado del reporte: %v", errEstado)
+	}
 
 	if errAck := message.Ack(false); errAck != nil {
 		log.Printf("Error confirmando el mensaje: %v", errAck)

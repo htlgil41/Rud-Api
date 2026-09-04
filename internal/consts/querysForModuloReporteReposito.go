@@ -20,10 +20,10 @@ var (
 		VALUES ($1, $2, $3, 'PENDIENTE')
 	`
 
-	QUERY_PREPARE_MARCAR_REPORTE_NO_AUTORIZADO = `
+	QUERY_PREPARE_ACTUALIZAR_ESTADO_REPORTE = `
 		UPDATE reportes_generados
-		SET estado = 'NO_AUTORIZADO',
-		    detalle_construccion = $2
+		SET estado = $2,
+		    detalle_construccion = $3
 		WHERE id = $1
 	`
 
