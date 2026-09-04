@@ -140,7 +140,6 @@ func (r *ModuloReporteRepositorioPg) GetReportesGeneradosByUsuario(usuarioID str
 		consts.QUERY_PREPARE_GET_REPORTES_GENERADOS_BY_USUARIO,
 		usuarioID,
 		cursor,
-		cursor,
 	)
 	if errRows != nil {
 		return types.ReportesGeneradosPaginados{}, errRows
@@ -177,7 +176,6 @@ func (r *ModuloReporteRepositorioPg) GetAllReportesGenerados(cursor *string) (ty
 	rows, errRows := r.Pool.Query(
 		context.Background(),
 		consts.QUERY_PREPARE_GET_ALL_REPORTES_GENERADOS,
-		cursor,
 		cursor,
 	)
 	if errRows != nil {
