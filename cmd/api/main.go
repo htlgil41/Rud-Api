@@ -6,9 +6,13 @@ import (
 	"rud-api/internal/config"
 	ctx "rud-api/internal/context"
 	"rud-api/internal/databases"
+	"rud-api/internal/libs"
 	"rud-api/internal/repositories"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
 
 func main() {
@@ -28,6 +32,22 @@ func main() {
 
 	usuarioRepo := &repositories.UsuarioRepositoriePg{Pool: pgDB.Pool}
 
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.ES256, Key: []byte(cfg.JWT.Secret)},
+		(&jose.SignerOptions{}).WithType("JWT"),
+	)
+	if err != nil {
+		log.Fatal("Error creating JWT signer:", err)
+	}
+
+	joseToken := &libs.JoseManagerToken{
+		Signer:            signer,
+		TokenSecretAccess: cfg.JWT.Secret,
+		ClaisnAccess: jwt.Claims{
+			Expiry: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+		},
+	}
+
 	if cfg.Server.Mode == "DEV" {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -39,10 +59,18 @@ func main() {
 	router.Use(gin.Recovery())
 
 	router.GET("/healthcheck", ctx.HealthCheckServer())
+
 	auth := router.Group("/auth")
 	{
 		auth.POST("/register", ctx.RegisterHandler(usuarioRepo))
-		auth.POST("/login", ctx.LoginHandler(usuarioRepo, cfg.JWT.Secret))
+		auth.POST("/login", ctx.LoginHandler(usuarioRepo, joseToken))
+	}
+
+	protected := router.Group("/api")
+	protected.Use(ctx.AuthMiddleware(joseToken))
+	{
+		protected.POST("/usuarios", ctx.RequireModulo(usuarioRepo, "GESTIONAR_USUARIOS"), ctx.RegisterUsuarioHandler(usuarioRepo))
+		protected.GET("/mis-modulos", ctx.GetMisModulosHandler(usuarioRepo))
 	}
 
 	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

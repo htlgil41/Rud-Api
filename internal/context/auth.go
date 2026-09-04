@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -65,7 +64,7 @@ func RegisterHandler(repo *repositories.UsuarioRepositoriePg) gin.HandlerFunc {
 	}
 }
 
-func LoginHandler(repo *repositories.UsuarioRepositoriePg, secretKey string) gin.HandlerFunc {
+func LoginHandler(repo *repositories.UsuarioRepositoriePg, joseToken *libs.JoseManagerToken) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body LoginBody
 		if err := c.ShouldBindJSON(&body); err != nil {
@@ -84,21 +83,17 @@ func LoginHandler(repo *repositories.UsuarioRepositoriePg, secretKey string) gin
 			return
 		}
 
-		signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.ES256, Key: []byte(secretKey)}, (&jose.SignerOptions{}).WithType("JWT"))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al generar token"})
-			return
-		}
-
-		cl := jwt.Claims{
+		joseToken.ClaisnAccess = jwt.Claims{
 			Expiry: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 		}
 
-		tokenStrinng := jwt.Signed(signer)
-		token, err := tokenStrinng.Claims(cl).Claims(libs.PayloadCustom{
-			IdUser:   user.ID,
-			Username: user.Usernme,
-		}).Serialize()
+		token, err := joseToken.GenerateAccessTokens(
+			user.ID,
+			libs.PayloadCustom{
+				IdUser:   user.ID,
+				Username: user.Usernme,
+			},
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al generar token"})
 			return

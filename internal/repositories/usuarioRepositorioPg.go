@@ -134,3 +134,44 @@ func (r *UsuarioRepositoriePg) ChangePassowordUsuario(password string, id_usuari
 	}
 	return false, can
 }
+
+func (r *UsuarioRepositoriePg) GetUsuarioModulos(usuarioID string) ([]types.Modulo, error) {
+	rows, errRows := r.Pool.Query(
+		context.Background(),
+		consts.QUERY_PREPARE_GET_USUARIO_MODULOS,
+		usuarioID,
+	)
+	if errRows != nil {
+		return []types.Modulo{}, errRows
+	}
+	defer rows.Close()
+
+	var modulos []types.Modulo
+	for rows.Next() {
+		var m types.Modulo
+		if errScan := rows.Scan(&m.ID, &m.Nombre, &m.Tipo, &m.Descripcion); errScan != nil {
+			continue
+		}
+		modulos = append(modulos, m)
+	}
+
+	if errRows := rows.Err(); errRows != nil {
+		return []types.Modulo{}, errRows
+	}
+
+	return modulos, nil
+}
+
+func (r *UsuarioRepositoriePg) HasModulo(usuarioID string, moduloNombre string) (bool, error) {
+	var count int
+	err := r.Pool.QueryRow(
+		context.Background(),
+		consts.QUERY_PREPARE_HAS_MODULO,
+		usuarioID,
+		moduloNombre,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
