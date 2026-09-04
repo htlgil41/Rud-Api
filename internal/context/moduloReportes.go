@@ -1,11 +1,14 @@
 package context
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"rud-api/internal/libs"
 	"rud-api/internal/repositories"
 	"rud-api/internal/types"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,7 +50,7 @@ func GetMisReportesHandler(repo *repositories.ModuloReporteRepositorioPg) gin.Ha
 	}
 }
 
-func SolicitarReporteHandler(repo *repositories.ModuloReporteRepositorioPg) gin.HandlerFunc {
+func SolicitarReporteHandler(repo *repositories.ModuloReporteRepositorioPg, publisher *repositories.RabbitPublisherRepositorio) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body SolicitudReporteBody
 		if err := c.ShouldBindJSON(&body); err != nil {
@@ -91,17 +94,29 @@ func SolicitarReporteHandler(repo *repositories.ModuloReporteRepositorioPg) gin.
 			Estado:          "PENDIENTE",
 		}
 
+		evento := types.ReporteSolicitadoEvent{
+			ReporteID:       reporteGenerado.ID,
+			UsuarioID:       userID,
+			ModuloReporteID: body.ReporteID,
+			Parametros:      body.Parametros,
+			SolicitadoEn:    time.Now(),
+		}
+		eventBytes, errMarshal := json.Marshal(evento)
+		if errMarshal != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error construyendo evento"})
+			return
+		}
+
+		if errPublish := publisher.Publish(eventBytes); errPublish != nil {
+			log.Printf("Error publicando evento reporte solicitado: %v", errPublish)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo procesar la solicitud del reporte"})
+			return
+		}
+
 		if err := repo.CreateReporteGenerado(reporteGenerado); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creando reporte"})
 			return
 		}
-
-		// TODO: Enviar a cola/evento para procesamiento
-		// EventDispatcher.Send("reporte.pendiente", map[string]interface{}{
-		//     "reporte_id": reporteGenerado.ID,
-		//     "query":      moduloReporte.QueryPlane,
-		//     "parametros": body.Parametros,
-		// })
 
 		c.JSON(http.StatusCreated, gin.H{
 			"reporte_id": reporteGenerado.ID,

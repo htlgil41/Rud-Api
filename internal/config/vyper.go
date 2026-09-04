@@ -11,13 +11,29 @@ type RootConfig struct {
 }
 
 type Config struct {
-	DB     DBConfig     `mapstructure:"db"`
-	Server ServerConfig `mapstructure:"server"`
-	JWT    JWTConfig    `mapstructure:"jwt"`
+	DB       DBConfig       `mapstructure:"db"`
+	Server   ServerConfig   `mapstructure:"server"`
+	JWT      JWTConfig      `mapstructure:"jwt"`
+	Rabbit   RabbitConfig   `mapstructure:"rabbit"`
+	Reportes ReportesConfig `mapstructure:"reportes"`
 }
 
 type JWTConfig struct {
 	Secret string `mapstructure:"secret"`
+}
+
+type RabbitConfig struct {
+	Host         string `mapstructure:"host"`
+	Port         int    `mapstructure:"port"`
+	Username     string `mapstructure:"username"`
+	Password     string `mapstructure:"password"`
+	Exchange     string `mapstructure:"exchange"`
+	ExchangeType string `mapstructure:"exchange_type"`
+	Consumer     string `mapstructure:"consumer"`
+}
+
+type ReportesConfig struct {
+	RoutingKey string `mapstructure:"routing_key"`
 }
 
 type DBConfig struct {

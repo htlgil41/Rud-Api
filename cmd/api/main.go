@@ -7,6 +7,7 @@ import (
 	ctx "rud-api/internal/context"
 	"rud-api/internal/databases"
 	"rud-api/internal/libs"
+	"rud-api/internal/queues"
 	"rud-api/internal/repositories"
 	"time"
 
@@ -32,6 +33,17 @@ func main() {
 
 	usuarioRepo := &repositories.UsuarioRepositoriePg{Pool: pgDB.Pool}
 	moduloReporteRepo := &repositories.ModuloReporteRepositorioPg{Pool: pgDB.Pool}
+
+	rabbitQueue := &queues.RabbitQueue{}
+	if errRabbit := rabbitQueue.ConnectRabbit(cfg.Rabbit); errRabbit != nil {
+		log.Printf("Advertencia: RabbitMQ no disponible, las solicitudes de reporte fallaran: %v", errRabbit)
+	}
+
+	rabbitPublisher := &repositories.RabbitPublisherRepositorio{
+		Ch:         rabbitQueue.Ch,
+		Exchange:   cfg.Rabbit.Exchange,
+		RoutingKey: cfg.Reportes.RoutingKey,
+	}
 
 	signer, err := jose.NewSigner(
 		jose.SigningKey{Algorithm: jose.ES256, Key: []byte(cfg.JWT.Secret)},
@@ -73,7 +85,7 @@ func main() {
 		protected.POST("/usuarios", ctx.RequireModulo(usuarioRepo, "GESTIONAR_USUARIOS"), ctx.RegisterUsuarioHandler(usuarioRepo))
 		protected.GET("/mis-modulos", ctx.GetMisModulosHandler(usuarioRepo))
 		protected.GET("/reportes", ctx.GetMisReportesHandler(moduloReporteRepo))
-		protected.POST("/reportes/solicitar", ctx.SolicitarReporteHandler(moduloReporteRepo))
+		protected.POST("/reportes/solicitar", ctx.SolicitarReporteHandler(moduloReporteRepo, rabbitPublisher))
 		protected.POST("/reportes/cancelar", ctx.CancelarReporteHandler(moduloReporteRepo))
 	}
 
