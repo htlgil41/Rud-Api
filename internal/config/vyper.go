@@ -13,6 +13,11 @@ type RootConfig struct {
 type Config struct {
 	DB     DBConfig     `mapstructure:"db"`
 	Server ServerConfig `mapstructure:"server"`
+	JWT    JWTConfig    `mapstructure:"jwt"`
+}
+
+type JWTConfig struct {
+	Secret string `mapstructure:"secret"`
 }
 
 type DBConfig struct {
