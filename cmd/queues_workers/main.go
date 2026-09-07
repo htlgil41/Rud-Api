@@ -12,11 +12,11 @@ import (
 	"rud-api/internal/helpers"
 	"rud-api/internal/queues"
 	"rud-api/internal/repositories"
+	taskqueues "rud-api/internal/task_queues"
 	"rud-api/internal/types"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -153,97 +153,26 @@ func main() {
 			}
 
 			fmt.Println(reporte_infor)
-			//procesarMensaje(msg, moduloReporteRepo, analisisRepo)
+			switch reporte_infor.Nombre {
+			case "AN_DEPARTAMENTO":
+				{
+					taskqueues.AnalisisDepartamentoQueueTask(msg, moduloReporteRepo, analisisRepo, evento)
+					break
+				}
+			default:
+				{
+					bitacora.WriteString("\nNo se ha podido construir debido a que la funcion no esta definida en el builder debe notificar a sistemas de esto")
+					if errEstado := moduloReporteRepo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
+						log.Printf("Error actualizando estado del reporte: %v", errEstado)
+					}
+					log.Printf("No se ha definido la funcion para ese reporte\n")
+					break
+				}
+			}
 			message.Ack(false)
 		}(message)
 	}
 
 	wg.Wait()
 	log.Println("Worker finalizado correctamente")
-}
-
-func procesarMensaje(
-	message amqp.Delivery,
-	repo *repositories.ModuloReporteRepositorioPg,
-	analisisRepo *repositories.AnalisisVentasRepositorie,
-	evento types.ReporteSolicitadoEvent,
-) {
-	var bitacora strings.Builder
-	bitacora.WriteString("Evento recibido para su procesamiento")
-	/* PROCESAMIENTO DE TAREA COMPLETA GENERACION DE REPORTE DIRECTA   */
-
-	start, errStart := time.Parse("2006-01-02", evento.Parametros[0])
-	if errStart != nil {
-		bitacora.WriteString("\nError al parsear el parametro a fecha")
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-
-		message.Ack(false)
-		return
-	}
-	end, errend := time.Parse("2006-01-02", evento.Parametros[1])
-	if errend != nil {
-		bitacora.WriteString("\nError al parsear el parametro a fecha")
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-
-		message.Ack(false)
-		return
-	}
-
-	a, errDatesGenerates := helpers.GeneratesDatesNoMayorToday(start, end)
-	if errDatesGenerates != nil {
-		message.Ack(false)
-		return
-	}
-	fmt.Fprintf(&bitacora, "\nFechas generadas correctamente (%d)", len(a))
-	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-		log.Printf("Error actualizando estado del reporte: %v", errEstado)
-	}
-
-	departamentos, errDepartamentos := analisisRepo.GetDepartamentosCodigos()
-	if errDepartamentos != nil {
-		bitacora.WriteString("\nError obteniendo departamentos: ")
-		bitacora.WriteString(errDepartamentos.Error())
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-		message.Ack(false)
-		return
-	}
-	bitacora.WriteString("\nDepartamentos obtenidos correctamente")
-	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-		log.Printf("Error actualizando estado del reporte: %v", errEstado)
-	}
-
-	for _, f := range a {
-		analisisDepartamento, errDep := analisisRepo.GetVentasDepartamento(
-			f,
-			f,
-			helpers.TransformSliceToInSqlString(departamentos),
-		)
-		if errDep != nil {
-			fmt.Println(errDep)
-			continue
-		}
-
-		fmt.Println(analisisDepartamento)
-	}
-
-	bitacora.WriteString("\nReporte construido correctamente")
-	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteCompletado, bitacora.String()); errEstado != nil {
-		log.Printf("Error actualizando estado del reporte: %v", errEstado)
-	}
-
-	if errAck := message.Ack(false); errAck != nil {
-		log.Printf("Error confirmando el mensaje: %v", errAck)
-		if errNack := message.Nack(false, true); errNack != nil {
-			log.Printf("Error devolviendo el mensaje a la cola: %v", errNack)
-		}
-		return
-	}
-
-	fmt.Println("Process alredy")
 }
