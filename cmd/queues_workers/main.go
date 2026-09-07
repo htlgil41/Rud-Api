@@ -152,12 +152,10 @@ func main() {
 				return
 			}
 
-			fmt.Println(reporte_infor)
 			switch reporte_infor.Nombre {
 			case "AN_DEPARTAMENTO":
 				{
 					taskqueues.AnalisisDepartamentoQueueTask(msg, moduloReporteRepo, analisisRepo, evento)
-					break
 				}
 			default:
 				{
@@ -166,10 +164,9 @@ func main() {
 						log.Printf("Error actualizando estado del reporte: %v", errEstado)
 					}
 					log.Printf("No se ha definido la funcion para ese reporte\n")
-					break
+					message.Ack(false)
 				}
 			}
-			message.Ack(false)
 		}(message)
 	}
 
