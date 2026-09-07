@@ -46,7 +46,7 @@ func (r *ModuloReporteRepositorioPg) GetModuloReporteByID(reporteID string) (typ
 		context.Background(),
 		consts.QUERY_PREPARE_GET_MODULO_REPORTE_BY_ID,
 		reporteID,
-	).Scan(&mr.ID, &mr.Nombre, &mr.Descripcion, &mr.ParamsSize)
+	).Scan(&mr.ID, &mr.Nombre, &mr.Descripcion, &mr.ParamsSize, &mr.QueryPrepare)
 	if err != nil {
 		return types.ModuloReporte{}, err
 	}

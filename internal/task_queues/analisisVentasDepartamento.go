@@ -16,6 +16,7 @@ import (
 
 func AnalisisDepartamentoQueueTask(
 	message amqp.Delivery,
+	query string,
 	repo *repositories.ModuloReporteRepositorioPg,
 	analisisRepo *repositories.AnalisisVentasRepositorie,
 	evento types.ReporteSolicitadoEvent,
@@ -71,6 +72,7 @@ func AnalisisDepartamentoQueueTask(
 	var d []types.VentasDepartamento = []types.VentasDepartamento{}
 	for _, f := range a {
 		analisisDepartamento, errDep := analisisRepo.GetVentasDepartamento(
+			query,
 			f,
 			f,
 			helpers.TransformSliceToInSqlString(departamentos),

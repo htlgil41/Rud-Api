@@ -155,7 +155,13 @@ func main() {
 			switch reporte_infor.Nombre {
 			case "AN_DEPARTAMENTO":
 				{
-					taskqueues.AnalisisDepartamentoQueueTask(msg, moduloReporteRepo, analisisRepo, evento)
+					taskqueues.AnalisisDepartamentoQueueTask(
+						msg,
+						reporte_infor.QueryPrepare,
+						moduloReporteRepo,
+						analisisRepo,
+						evento,
+					)
 				}
 			default:
 				{

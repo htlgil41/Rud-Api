@@ -98,6 +98,7 @@ func (r *AnalisisVentasRepositorie) GetSubGrupoCodigos() ([]string, error) {
 }
 
 func (r *AnalisisVentasRepositorie) GetVentasDepartamento(
+	query string,
 	fecha_start string,
 	fecha_end string,
 	departamento_filters string,
@@ -109,7 +110,7 @@ func (r *AnalisisVentasRepositorie) GetVentasDepartamento(
 	rows, errRows := r.Db.QueryContext(
 		ctx,
 		helpers.TranformQuerysAddParametersStringsFlag(
-			consts.QUERY_PREPARE_DEPARTAMENTO,
+			query,
 			[]any{departamento_filters, departamento_filters},
 		),
 		fecha_start,

@@ -10,7 +10,7 @@ var (
 	`
 
 	QUERY_PREPARE_GET_MODULO_REPORTE_BY_ID = `
-		SELECT id, nombre, descripcion, params_size
+		SELECT id, nombre, descripcion, params_size, query_prepare
 		FROM modulos_reportes
 		WHERE id = $1 AND activo = TRUE
 	`
