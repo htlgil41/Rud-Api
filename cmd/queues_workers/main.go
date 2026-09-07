@@ -104,7 +104,57 @@ func main() {
 				}
 			}()
 
-			procesarMensaje(msg, moduloReporteRepo, analisisRepo)
+			var bitacora strings.Builder
+			bitacora.WriteString("Evento recibido para su procesamiento")
+			var evento types.ReporteSolicitadoEvent
+
+			if errUnmarshal := json.Unmarshal(message.Body, &evento); errUnmarshal != nil {
+				bitacora.WriteString("\nError parseando el evento: ")
+				bitacora.WriteString(errUnmarshal.Error())
+				log.Printf("Error parseando el evento: %v", errUnmarshal)
+
+				message.Ack(false)
+				return
+			}
+			bitacora.WriteString("\nEvento: reporte ")
+			bitacora.WriteString(evento.ReporteID)
+			bitacora.WriteString(" del usuario ")
+			bitacora.WriteString(evento.UsuarioID)
+
+			hasAccess, errHas := moduloReporteRepo.HasModuloReporte(evento.UsuarioID, evento.ModuloReporteID)
+			if errHas != nil {
+				bitacora.WriteString("\nError validando permisos del usuario: ")
+				bitacora.WriteString(errHas.Error())
+				if errEstado := moduloReporteRepo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
+					log.Printf("Error actualizando estado del reporte: %v", errEstado)
+				}
+				message.Ack(false)
+				return
+			}
+			if !hasAccess {
+				bitacora.WriteString("\nNo se encontraron permisos para generar el reporte")
+				if errEstado := moduloReporteRepo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteNoAutorizado, bitacora.String()); errEstado != nil {
+					log.Printf("Error actualizando estado del reporte: %v", errEstado)
+				}
+				message.Ack(false)
+				return
+			}
+
+			bitacora.WriteString("\nPermisos validados correctamente, iniciando construccion del reporte")
+			if errEstado := moduloReporteRepo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
+				log.Printf("Error actualizando estado del reporte: %v", errEstado)
+			}
+
+			reporte_infor, errReporteInfo := moduloReporteRepo.GetModuloReporteByID(evento.ModuloReporteID)
+			if errReporteInfo != nil {
+				log.Printf("No se ha encontrado el modulo de reporte")
+				message.Ack(false)
+				return
+			}
+
+			fmt.Println(reporte_infor)
+			//procesarMensaje(msg, moduloReporteRepo, analisisRepo)
+			message.Ack(false)
 		}(message)
 	}
 
@@ -112,52 +162,14 @@ func main() {
 	log.Println("Worker finalizado correctamente")
 }
 
-func procesarMensaje(message amqp.Delivery, repo *repositories.ModuloReporteRepositorioPg, analisisRepo *repositories.AnalisisVentasRepositorie) {
+func procesarMensaje(
+	message amqp.Delivery,
+	repo *repositories.ModuloReporteRepositorioPg,
+	analisisRepo *repositories.AnalisisVentasRepositorie,
+	evento types.ReporteSolicitadoEvent,
+) {
 	var bitacora strings.Builder
 	bitacora.WriteString("Evento recibido para su procesamiento")
-
-	messageBody := string(message.Body)
-	log.Printf("Mensaje recibido: %s", messageBody)
-
-	var evento types.ReporteSolicitadoEvent
-	if errUnmarshal := json.Unmarshal(message.Body, &evento); errUnmarshal != nil {
-		bitacora.WriteString("\nError parseando el evento: ")
-		bitacora.WriteString(errUnmarshal.Error())
-		log.Printf("Error parseando el evento: %v", errUnmarshal)
-		message.Ack(false)
-		return
-	}
-
-	bitacora.WriteString("\nEvento: reporte ")
-	bitacora.WriteString(evento.ReporteID)
-	bitacora.WriteString(" del usuario ")
-	bitacora.WriteString(evento.UsuarioID)
-
-	hasAccess, errHas := repo.HasModuloReporte(evento.UsuarioID, evento.ModuloReporteID)
-	if errHas != nil {
-		bitacora.WriteString("\nError validando permisos del usuario: ")
-		bitacora.WriteString(errHas.Error())
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-		message.Ack(false)
-		return
-	}
-
-	if !hasAccess {
-		bitacora.WriteString("\nNo se encontraron permisos para generar el reporte")
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteNoAutorizado, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-		message.Ack(false)
-		return
-	}
-
-	bitacora.WriteString("\nPermisos validados correctamente, iniciando construccion del reporte")
-	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-		log.Printf("Error actualizando estado del reporte: %v", errEstado)
-	}
-
 	/* PROCESAMIENTO DE TAREA COMPLETA GENERACION DE REPORTE DIRECTA   */
 
 	start, errStart := time.Parse("2006-01-02", evento.Parametros[0])
