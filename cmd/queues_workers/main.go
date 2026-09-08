@@ -155,8 +155,30 @@ func main() {
 			switch reporte_infor.Nombre {
 			case "AN_DEPARTAMENTO":
 				{
+					log.Printf("Analisis de ventas departamento")
 					taskqueues.AnalisisDepartamentoQueueTask(
 						msg,
+						reporte_infor.QueryPrepare,
+						moduloReporteRepo,
+						analisisRepo,
+						evento,
+					)
+				}
+			case "AN_GRUPO":
+				{
+					taskqueues.AnalisisGrupoQueueTask(
+						msg,
+						reporte_infor.QueryPrepare,
+						moduloReporteRepo,
+						analisisRepo,
+						evento,
+					)
+				}
+			case "AN_SUBGRUPO":
+				{
+					log.Printf("Reporte subgrupo analis")
+					taskqueues.AnalisisSubGrupoQueueTask(
+						message,
 						reporte_infor.QueryPrepare,
 						moduloReporteRepo,
 						analisisRepo,

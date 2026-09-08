@@ -14,17 +14,7 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-type AgrupacionDepartamento struct {
-	Monto                   float64
-	Porcentaje_monto        float64
-	Costo                   float64
-	Utilidad                float64
-	PorcentajeUtilidadMonto float64
-	PorcentajeUtilidad      float64
-	CostoOferta             float64
-}
-
-func AnalisisDepartamentoQueueTask(
+func AnalisisGrupoQueueTask(
 	message amqp.Delivery,
 	query string,
 	repo *repositories.ModuloReporteRepositorioPg,
@@ -74,24 +64,36 @@ func AnalisisDepartamentoQueueTask(
 		message.Ack(false)
 		return
 	}
+	grupo, errGrupo := analisisRepo.GetGrupoCodigos()
+	if errGrupo != nil {
+		bitacora.WriteString("\nError obteniendo grupos: ")
+		bitacora.WriteString(errGrupo.Error())
+		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
+			log.Printf("Error actualizando estado del reporte: %v", errEstado)
+		}
+		message.Ack(false)
+		return
+	}
+
 	bitacora.WriteString("\nDepartamentos obtenidos correctamente")
 	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
 		log.Printf("Error actualizando estado del reporte: %v", errEstado)
 	}
 
-	var d []types.VentasDepartamento = []types.VentasDepartamento{}
+	var d []types.VentasGrupo = []types.VentasGrupo{}
 	for _, f := range a {
-		analisisDepartamento, errDep := analisisRepo.GetVentasDepartamento(
+		analisisgrupo, errDep := analisisRepo.GetVentasGrupo(
 			query,
 			f,
 			f,
 			helpers.TransformSliceToInSqlString(departamentos),
+			helpers.TransformSliceToInSqlString(grupo),
 		)
 		if errDep != nil {
 			fmt.Fprintf(&bitacora, "\nSe produjo un error en la etapa de construccion [%s]", errDep.Error())
 			continue
 		}
-		d = append(d, analisisDepartamento...)
+		d = append(d, analisisgrupo...)
 	}
 	bitacora.WriteString("\nInformacion recolectada correctamente - Se procede a crear el exel")
 	f := excelize.NewFile()
@@ -112,99 +114,39 @@ func AnalisisDepartamentoQueueTask(
 		return
 	}
 
-	var ag map[string]AgrupacionDepartamento = map[string]AgrupacionDepartamento{}
-	var totalMonto float64 = 0
-	for _, v := range d {
-		if vmapa, ok := ag[v.Departamento]; !ok {
-			ag[v.Departamento] = AgrupacionDepartamento{
-				Monto:                   v.Subtotal,
-				Porcentaje_monto:        0,
-				Costo:                   v.Costo,
-				Utilidad:                0,
-				PorcentajeUtilidadMonto: 0,
-				PorcentajeUtilidad:      0,
-				CostoOferta:             v.Costo,
-			}
-		} else {
-			ag[v.Departamento] = AgrupacionDepartamento{
-				Monto:                   vmapa.Monto + v.Subtotal,
-				Porcentaje_monto:        0,
-				Costo:                   vmapa.Costo + v.Costo,
-				Utilidad:                0,
-				PorcentajeUtilidadMonto: 0,
-				PorcentajeUtilidad:      0,
-				CostoOferta:             vmapa.CostoOferta + v.Costo,
-			}
-		}
-		totalMonto += v.Subtotal
-	}
-
 	f.SetCellValue(sheet, "A1", "Fecha")
 	f.SetCellValue(sheet, "B1", "Sucursal")
-	f.SetCellValue(sheet, "C1", "Departamento")
-	f.SetCellValue(sheet, "D1", "Monto Subtotal")
-	f.SetCellValue(sheet, "E1", "Monto Total")
-	f.SetCellValue(sheet, "F1", "(%)")
-	f.SetCellValue(sheet, "G1", "NCosto")
-	f.SetCellValue(sheet, "H1", "Costo")
-
-	f.SetCellValue(sheet, "I1", "Utilidad")
-	f.SetCellValue(sheet, "J1", "Utilidad Per")
-	f.SetCellValue(sheet, "K1", "(%)")
-	f.SetCellValue(sheet, "L1", "Costo Oferta")
-	f.SetCellValue(sheet, "M1", "Diferencia")
-	f.SetCellValue(sheet, "N1", "Cantidad")
-
-	f.SetCellValue(sheet, "Q1", "Departamento")
-	f.SetCellValue(sheet, "R1", "Monto")
-	f.SetCellValue(sheet, "S1", "Porcentaje_monto")
-	f.SetCellValue(sheet, "T1", "Costo")
-	f.SetCellValue(sheet, "U1", "Utilidad")
-	f.SetCellValue(sheet, "V1", "PorcentajeUtilidadMonto")
-	f.SetCellValue(sheet, "W1", "PorcentajeUtilidad")
-	f.SetCellValue(sheet, "X1", "CostoOferta")
+	f.SetCellValue(sheet, "C1", "Grupo")
+	f.SetCellValue(sheet, "D1", "Departamento")
+	f.SetCellValue(sheet, "E1", "Total")
+	f.SetCellValue(sheet, "F1", "Precio")
+	f.SetCellValue(sheet, "G1", "Subtotal")
+	f.SetCellValue(sheet, "H1", "NCantidad")
+	f.SetCellValue(sheet, "I1", "NCosto")
+	f.SetCellValue(sheet, "J1", "UtilidadPer")
+	f.SetCellValue(sheet, "K1", "Cantidad")
+	f.SetCellValue(sheet, "L1", "Utilidad")
+	f.SetCellValue(sheet, "M1", "CostoOferta")
 
 	for idata, data := range d {
 		row := idata + 2
-
-		utilidadCosto_total := (data.Total / totalMonto) * 100
 		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), data.Fecha.Format("2006-01-02"))
 		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), data.Sucursal)
-		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), data.Departamento)
-		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), data.Subtotal)
+		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), data.Grupo)
+		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), data.Departamento)
 		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), data.Total)
-		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), utilidadCosto_total)
-
-		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), data.NCosto)
-		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), data.Costo)
-		f.SetCellValue(sheet, fmt.Sprintf("I%d", row), data.Subtotal-data.NCosto)
+		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), data.Precio)
+		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), data.Subtotal)
+		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), data.NCantidad)
+		f.SetCellValue(sheet, fmt.Sprintf("I%d", row), data.NCosto)
 		f.SetCellValue(sheet, fmt.Sprintf("J%d", row), data.UtilidadPer)
-		f.SetCellValue(sheet, fmt.Sprintf("K%d", row), (utilidadCosto_total/totalMonto)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("L%d", row), data.CostoOferta)
-		f.SetCellValue(sheet, fmt.Sprintf("M%d", row), data.Diferencia)
-		f.SetCellValue(sheet, fmt.Sprintf("N%d", row), data.Cantidad)
-
-	}
-
-	total_utilidad := 0.0
-	for _, v := range ag {
-		total_utilidad += (v.Monto / totalMonto) * 100
-	}
-	i := 2
-	for l, v := range ag {
-		f.SetCellValue(sheet, fmt.Sprintf("Q%d", i), l)
-		f.SetCellValue(sheet, fmt.Sprintf("R%d", i), v.Monto)
-		f.SetCellValue(sheet, fmt.Sprintf("S%d", i), (v.Monto/totalMonto)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("T%d", i), v.Costo)
-		f.SetCellValue(sheet, fmt.Sprintf("U%d", i), v.Monto-v.Costo)
-		f.SetCellValue(sheet, fmt.Sprintf("V%d", i), ((v.Monto-v.Costo)/v.Monto)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("W%d", i), ((((v.Monto-v.Costo)/v.Monto)*100)/total_utilidad)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("X%d", i), v.CostoOferta)
-		i += 1
+		f.SetCellValue(sheet, fmt.Sprintf("K%d", row), data.Cantidad)
+		f.SetCellValue(sheet, fmt.Sprintf("L%d", row), data.Utilidad)
+		f.SetCellValue(sheet, fmt.Sprintf("M%d", row), data.CostoOferta)
 	}
 
 	f.SetActiveSheet(index)
-	if err := f.SaveAs(fmt.Sprintf("%sAnalisis_ventas_departamento %s.xlsx", time.Now().Format("2006-01-02 15:04:05"), evento.UsuarioID)); err != nil {
+	if err := f.SaveAs(fmt.Sprintf("%sAnalisis_ventas_grupo %s.xlsx", time.Now().Format("2006-01-02 15:04:05"), evento.UsuarioID)); err != nil {
 		fmt.Println(err)
 	}
 

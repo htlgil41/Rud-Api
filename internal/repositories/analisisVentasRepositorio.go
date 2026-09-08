@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"log"
 	"rud-api/internal/consts"
 	"rud-api/internal/helpers"
 	"rud-api/internal/types"
@@ -117,7 +118,7 @@ func (r *AnalisisVentasRepositorie) GetVentasDepartamento(
 		fecha_end,
 	)
 	if errRows != nil {
-		return []types.VentasDepartamento{}, errRows
+		return resultado, errRows
 	}
 	for rows.Next() {
 		var v types.VentasDepartamento
@@ -140,13 +141,14 @@ func (r *AnalisisVentasRepositorie) GetVentasDepartamento(
 	}
 
 	if eRows := rows.Err(); eRows != nil {
-		return []types.VentasDepartamento{}, errRows
+		return resultado, errRows
 	}
 
 	return resultado, nil
 }
 
 func (r *AnalisisVentasRepositorie) GetVentasGrupo(
+	query string,
 	fecha_start string,
 	fecha_end string,
 	departamento_filters string,
@@ -159,14 +161,14 @@ func (r *AnalisisVentasRepositorie) GetVentasGrupo(
 	rows, errRows := r.Db.QueryContext(
 		ctx,
 		helpers.TranformQuerysAddParametersStringsFlag(
-			consts.QUERY_PREPARE_GRUPO,
-			[]any{departamento_filters, grupo_filters},
+			query,
+			[]any{departamento_filters, grupo_filters, departamento_filters, grupo_filters},
 		),
 		fecha_start,
 		fecha_end,
 	)
 	if errRows != nil {
-		return []types.VentasGrupo{}, errRows
+		return resultado, errRows
 	}
 	for rows.Next() {
 		var v types.VentasGrupo
@@ -189,33 +191,38 @@ func (r *AnalisisVentasRepositorie) GetVentasGrupo(
 	}
 
 	if eRows := rows.Err(); eRows != nil {
-		return []types.VentasGrupo{}, errRows
+		return resultado, errRows
 	}
 
-	return []types.VentasGrupo{}, nil
+	return resultado, nil
 }
 
 func (r *AnalisisVentasRepositorie) GetVentasSubGrupo(
+	query string,
 	fecha_start string,
 	fecha_end string,
 	departamento_filters string,
 	grupo_filters string,
+	subGrupo_filters string,
 ) ([]types.SubGrupo, error) {
 	var resultado []types.SubGrupo = []types.SubGrupo{}
-	ctx, cancelCtx := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelCtx()
 
 	rows, errRows := r.Db.QueryContext(
 		ctx,
 		helpers.TranformQuerysAddParametersStringsFlag(
-			consts.QUERY_PREPAPRE_SUBGRUPO,
-			[]any{departamento_filters, grupo_filters},
+			query,
+			[]any{
+				departamento_filters, grupo_filters, subGrupo_filters,
+				departamento_filters, grupo_filters, subGrupo_filters,
+			},
 		),
 		fecha_start,
 		fecha_end,
 	)
 	if errRows != nil {
-		return []types.SubGrupo{}, errRows
+		return resultado, errRows
 	}
 	for rows.Next() {
 		var v types.SubGrupo
@@ -235,12 +242,13 @@ func (r *AnalisisVentasRepositorie) GetVentasSubGrupo(
 			&v.Utilidad,
 			&v.CostoOferta,
 		)
+		log.Printf("Inyectar %s %s %s %s", v.Fecha, v.Departamento, v.Grupo, v.SubGrupo)
 		resultado = append(resultado, v)
 	}
 
 	if eRows := rows.Err(); eRows != nil {
-		return []types.SubGrupo{}, errRows
+		return resultado, errRows
 	}
 
-	return []types.SubGrupo{}, nil
+	return resultado, nil
 }
