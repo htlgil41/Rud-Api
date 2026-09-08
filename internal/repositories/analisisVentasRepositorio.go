@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"database/sql"
-	"log"
 	"rud-api/internal/consts"
 	"rud-api/internal/helpers"
 	"rud-api/internal/types"
@@ -242,7 +241,6 @@ func (r *AnalisisVentasRepositorie) GetVentasSubGrupo(
 			&v.Utilidad,
 			&v.CostoOferta,
 		)
-		log.Printf("Inyectar %s %s %s %s", v.Fecha, v.Departamento, v.Grupo, v.SubGrupo)
 		resultado = append(resultado, v)
 	}
 

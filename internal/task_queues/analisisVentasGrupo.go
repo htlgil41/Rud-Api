@@ -173,7 +173,7 @@ func generarExcelGrupo(ventasData []types.VentasGrupo) error {
 	}
 
 	encabezadosAgrupados := []string{
-		"Departamento", "Monto", "Porcentaje Monto", "Costo", "Utilidad",
+		"Departamento - Grupo", "Monto", "Porcentaje Monto", "Costo", "Utilidad",
 		"Porcentaje Utilidad Monto", "Porcentaje Utilidad", "Costo Oferta",
 	}
 	offsetCol := 16
