@@ -3,25 +3,33 @@ package taskqueues
 import (
 	"fmt"
 	"log"
-	"rud-api/internal/consts"
-	"rud-api/internal/helpers"
-	"rud-api/internal/repositories"
-	"rud-api/internal/types"
 	"strings"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/xuri/excelize/v2"
+
+	"rud-api/internal/consts"
+	"rud-api/internal/helpers"
+	"rud-api/internal/repositories"
+	"rud-api/internal/types"
 )
 
 type AgrupacionDepartamento struct {
 	Monto                   float64
-	Porcentaje_monto        float64
+	PorcentajeMonto         float64
 	Costo                   float64
 	Utilidad                float64
 	PorcentajeUtilidadMonto float64
 	PorcentajeUtilidad      float64
 	CostoOferta             float64
+}
+
+func safeDivide(numerator, denominator float64) float64 {
+	if denominator == 0 {
+		return 0
+	}
+	return numerator / denominator
 }
 
 func AnalisisDepartamentoQueueTask(
@@ -32,200 +40,169 @@ func AnalisisDepartamentoQueueTask(
 	evento types.ReporteSolicitadoEvent,
 ) {
 	var bitacora strings.Builder
+	var estadoFinal string
+	defer func(t *strings.Builder) {
+		if estadoFinal == "" {
+			estadoFinal = consts.EstadoReporteFallo
+		}
+		if err := repo.ActualizarEstadoReporte(evento.ReporteID, estadoFinal, t.String()); err != nil {
+			log.Printf("Error crítico actualizando estado final del reporte %s: %v", evento.ReporteID, err)
+		}
+	}(&bitacora)
+
 	bitacora.WriteString("Evento recibido para su procesamiento")
 	start, errStart := time.Parse("2006-01-02", evento.Parametros[0])
-	if errStart != nil {
-		bitacora.WriteString("\nError al parsear el parametro a fecha")
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-
-		message.Ack(false)
-		return
-	}
-	end, errend := time.Parse("2006-01-02", evento.Parametros[1])
-	if errend != nil {
-		bitacora.WriteString("\nError al parsear el parametro a fecha")
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-
+	end, errEnd := time.Parse("2006-01-02", evento.Parametros[1])
+	if errStart != nil || errEnd != nil {
+		bitacora.WriteString("\nError al parsear los parámetros a fecha")
+		estadoFinal = consts.EstadoReporteFallo
 		message.Ack(false)
 		return
 	}
 
-	a, errDatesGenerates := helpers.GeneratesDatesNoMayorToday(start, end)
-	if errDatesGenerates != nil {
+	rangoFechas, errDates := helpers.GeneratesDatesNoMayorToday(start, end)
+	if errDates != nil {
+		bitacora.WriteString("\nError generando rango de fechas: ")
+		bitacora.WriteString(errDates.Error())
+		estadoFinal = consts.EstadoReporteFallo
 		message.Ack(false)
 		return
 	}
-	fmt.Fprintf(&bitacora, "\nFechas generadas correctamente (%d)", len(a))
-	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-		log.Printf("Error actualizando estado del reporte: %v", errEstado)
-	}
+	fmt.Fprintf(&bitacora, "\nFechas generadas correctamente (%d días)", len(rangoFechas))
 
-	departamentos, errDepartamentos := analisisRepo.GetDepartamentosCodigos()
-	if errDepartamentos != nil {
+	departamentos, errDep := analisisRepo.GetDepartamentosCodigos()
+	if errDep != nil {
 		bitacora.WriteString("\nError obteniendo departamentos: ")
-		bitacora.WriteString(errDepartamentos.Error())
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
+		bitacora.WriteString(errDep.Error())
+		estadoFinal = consts.EstadoReporteFallo
 		message.Ack(false)
 		return
 	}
 	bitacora.WriteString("\nDepartamentos obtenidos correctamente")
-	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteProcesando, bitacora.String()); errEstado != nil {
-		log.Printf("Error actualizando estado del reporte: %v", errEstado)
-	}
 
-	var d []types.VentasDepartamento = []types.VentasDepartamento{}
-	for _, f := range a {
-		analisisDepartamento, errDep := analisisRepo.GetVentasDepartamento(
-			query,
-			f,
-			f,
-			helpers.TransformSliceToInSqlString(departamentos),
-		)
-		if errDep != nil {
-			fmt.Fprintf(&bitacora, "\nSe produjo un error en la etapa de construccion [%s]", errDep.Error())
+	deptosInSQL := helpers.TransformSliceToInSqlString(departamentos)
+	var ventasData []types.VentasDepartamento
+
+	for _, fecha := range rangoFechas {
+		datosDia, err := analisisRepo.GetVentasDepartamento(query, fecha, fecha, deptosInSQL)
+		if err != nil {
+			fmt.Fprintf(&bitacora, "\nAdvertencia: error obteniendo ventas para %s: %v", fecha, err)
 			continue
 		}
-		d = append(d, analisisDepartamento...)
+		ventasData = append(ventasData, datosDia...)
 	}
-	bitacora.WriteString("\nInformacion recolectada correctamente - Se procede a crear el exel")
-	f := excelize.NewFile()
-	defer func() {
-		if err := f.Close(); err != nil {
-		}
-	}()
 
-	sheet := "Sheet1"
-	index, err := f.NewSheet(sheet)
-	if err != nil {
-		bitacora.WriteString("\nError al crear el Sheets en el excel")
-		if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteFallo, bitacora.String()); errEstado != nil {
-			log.Printf("Error actualizando estado del reporte: %v", errEstado)
-		}
-
-		fmt.Println("No se pudo contruir el reporte excel")
+	if len(ventasData) == 0 {
+		bitacora.WriteString("\nNo se encontraron datos para el rango de fechas seleccionado")
+		estadoFinal = consts.EstadoReporteFallo
+		message.Ack(false)
 		return
 	}
+	bitacora.WriteString("\nInformación recolectada correctamente. Procediendo a crear el Excel.")
 
-	var ag map[string]AgrupacionDepartamento = map[string]AgrupacionDepartamento{}
-	var totalMonto float64 = 0
-	for _, v := range d {
-		if vmapa, ok := ag[v.Departamento]; !ok {
-			ag[v.Departamento] = AgrupacionDepartamento{
-				Monto:                   v.Subtotal,
-				Porcentaje_monto:        0,
-				Costo:                   v.Costo,
-				Utilidad:                0,
-				PorcentajeUtilidadMonto: 0,
-				PorcentajeUtilidad:      0,
-				CostoOferta:             v.Costo,
-			}
-		} else {
-			ag[v.Departamento] = AgrupacionDepartamento{
-				Monto:                   vmapa.Monto + v.Subtotal,
-				Porcentaje_monto:        0,
-				Costo:                   vmapa.Costo + v.Costo,
-				Utilidad:                0,
-				PorcentajeUtilidadMonto: 0,
-				PorcentajeUtilidad:      0,
-				CostoOferta:             vmapa.CostoOferta + v.Costo,
-			}
-		}
-		totalMonto += v.Subtotal
-	}
-
-	f.SetCellValue(sheet, "A1", "Fecha")
-	f.SetCellValue(sheet, "B1", "Sucursal")
-	f.SetCellValue(sheet, "C1", "Departamento")
-	f.SetCellValue(sheet, "D1", "Monto Subtotal")
-	f.SetCellValue(sheet, "E1", "Monto Total")
-	f.SetCellValue(sheet, "F1", "(%)")
-	f.SetCellValue(sheet, "G1", "NCosto")
-	f.SetCellValue(sheet, "H1", "Costo")
-
-	f.SetCellValue(sheet, "I1", "Utilidad")
-	f.SetCellValue(sheet, "J1", "Utilidad Per")
-	f.SetCellValue(sheet, "K1", "(%)")
-	f.SetCellValue(sheet, "L1", "Costo Oferta")
-	f.SetCellValue(sheet, "M1", "Diferencia")
-	f.SetCellValue(sheet, "N1", "Cantidad")
-
-	f.SetCellValue(sheet, "Q1", "Departamento")
-	f.SetCellValue(sheet, "R1", "Monto")
-	f.SetCellValue(sheet, "S1", "Porcentaje_monto")
-	f.SetCellValue(sheet, "T1", "Costo")
-	f.SetCellValue(sheet, "U1", "Utilidad")
-	f.SetCellValue(sheet, "V1", "PorcentajeUtilidadMonto")
-	f.SetCellValue(sheet, "W1", "PorcentajeUtilidad")
-	f.SetCellValue(sheet, "X1", "CostoOferta")
-
-	for idata, data := range d {
-		row := idata + 2
-
-		utilidadCosto_total := (data.Total / totalMonto) * 100
-		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), data.Fecha.Format("2006-01-02"))
-		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), data.Sucursal)
-		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), data.Departamento)
-		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), data.Subtotal)
-		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), data.Total)
-		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), utilidadCosto_total)
-
-		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), data.NCosto)
-		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), data.Costo)
-		f.SetCellValue(sheet, fmt.Sprintf("I%d", row), data.Subtotal-data.NCosto)
-		f.SetCellValue(sheet, fmt.Sprintf("J%d", row), data.UtilidadPer)
-		f.SetCellValue(sheet, fmt.Sprintf("K%d", row), (utilidadCosto_total/totalMonto)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("L%d", row), data.CostoOferta)
-		f.SetCellValue(sheet, fmt.Sprintf("M%d", row), data.Diferencia)
-		f.SetCellValue(sheet, fmt.Sprintf("N%d", row), data.Cantidad)
-
-	}
-
-	total_utilidad := 0.0
-	for _, v := range ag {
-		total_utilidad += (v.Monto / totalMonto) * 100
-	}
-	i := 2
-	for l, v := range ag {
-		f.SetCellValue(sheet, fmt.Sprintf("Q%d", i), l)
-		f.SetCellValue(sheet, fmt.Sprintf("R%d", i), v.Monto)
-		f.SetCellValue(sheet, fmt.Sprintf("S%d", i), (v.Monto/totalMonto)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("T%d", i), v.Costo)
-		f.SetCellValue(sheet, fmt.Sprintf("U%d", i), v.Monto-v.Costo)
-		f.SetCellValue(sheet, fmt.Sprintf("V%d", i), ((v.Monto-v.Costo)/v.Monto)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("W%d", i), ((((v.Monto-v.Costo)/v.Monto)*100)/total_utilidad)*100)
-		f.SetCellValue(sheet, fmt.Sprintf("X%d", i), v.CostoOferta)
-		i += 1
-	}
-
-	f.SetActiveSheet(index)
-	if err := f.SaveAs(fmt.Sprintf("%sAnalisis_ventas_departamento %s.xlsx", time.Now().Format("2006-01-02 15:04:05"), evento.UsuarioID)); err != nil {
-		fmt.Println(err)
-	}
-
-	bitacora.WriteString("\nReporte construido correctamente")
-	if errAck := message.Ack(false); errAck != nil {
-		log.Printf("Error confirmando el mensaje: %v", errAck)
-		if errNack := message.Nack(false, true); errNack != nil {
-
-			bitacora.WriteString("\nFallo confirmar la solicitud el reporte sigue en cola")
-			if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteCompletado, bitacora.String()); errEstado != nil {
-				log.Printf("Error actualizando estado del reporte: %v", errEstado)
-			}
-			log.Printf("Error devolviendo el mensaje a la cola: %v", errNack)
-		}
+	err := generarExcelDepartamentos(ventasData)
+	if err != nil {
+		bitacora.WriteString("\nError al construir el archivo Excel: ")
+		bitacora.WriteString(err.Error())
+		estadoFinal = consts.EstadoReporteFallo
+		message.Ack(false)
 		return
 	}
 
 	bitacora.WriteString("\nRud ha construido el reporte correctamente")
-	if errEstado := repo.ActualizarEstadoReporte(evento.ReporteID, consts.EstadoReporteCompletado, bitacora.String()); errEstado != nil {
-		log.Printf("Error actualizando estado del reporte: %v", errEstado)
+	estadoFinal = consts.EstadoReporteCompletado
+
+	if err := message.Ack(false); err != nil {
+		log.Printf("Error confirmando el mensaje (Ack): %v", err)
+		if errNack := message.Nack(false, true); errNack != nil {
+			log.Printf("Error crítico: no se pudo confirmar ni reencolar el mensaje (Nack): %v", errNack)
+		}
+		return
 	}
 
-	fmt.Println("Process alredy")
+	log.Println("Proceso de reporte completado exitosamente")
+}
+
+func generarExcelDepartamentos(ventasData []types.VentasDepartamento) error {
+	archivo := excelize.NewFile()
+	defer archivo.Close()
+
+	sheet := "Sheet1"
+	encabezados := []string{
+		"Fecha", "Sucursal", "Departamento", "Monto Subtotal", "Monto Total", "(%)",
+		"NCosto", "Costo", "Utilidad", "Utilidad Per", "(%)", "Costo Oferta", "Diferencia", "Cantidad",
+	}
+
+	for col, header := range encabezados {
+		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
+		archivo.SetCellValue(sheet, cell, header)
+	}
+
+	var totalMonto float64
+	for _, v := range ventasData {
+		totalMonto += v.Subtotal
+	}
+
+	for row, data := range ventasData {
+		fila := row + 2
+		utilidadCostoTotal := safeDivide(data.Total, totalMonto) * 100
+
+		archivo.SetCellValue(sheet, fmt.Sprintf("A%d", fila), data.Fecha.Format("2006-01-02"))
+		archivo.SetCellValue(sheet, fmt.Sprintf("B%d", fila), data.Sucursal)
+		archivo.SetCellValue(sheet, fmt.Sprintf("C%d", fila), data.Departamento)
+		archivo.SetCellValue(sheet, fmt.Sprintf("D%d", fila), data.Subtotal)
+		archivo.SetCellValue(sheet, fmt.Sprintf("E%d", fila), data.Total)
+		archivo.SetCellValue(sheet, fmt.Sprintf("F%d", fila), utilidadCostoTotal)
+		archivo.SetCellValue(sheet, fmt.Sprintf("G%d", fila), data.NCosto)
+		archivo.SetCellValue(sheet, fmt.Sprintf("H%d", fila), data.Costo)
+		archivo.SetCellValue(sheet, fmt.Sprintf("I%d", fila), data.Subtotal-data.NCosto)
+		archivo.SetCellValue(sheet, fmt.Sprintf("J%d", fila), data.UtilidadPer)
+		archivo.SetCellValue(sheet, fmt.Sprintf("K%d", fila), safeDivide(utilidadCostoTotal, totalMonto)*100)
+		archivo.SetCellValue(sheet, fmt.Sprintf("L%d", fila), data.CostoOferta)
+		archivo.SetCellValue(sheet, fmt.Sprintf("M%d", fila), data.Diferencia)
+		archivo.SetCellValue(sheet, fmt.Sprintf("N%d", fila), data.Cantidad)
+	}
+
+	agrupacion := make(map[string]AgrupacionDepartamento)
+	for _, v := range ventasData {
+		ag := agrupacion[v.Departamento]
+		ag.Monto += v.Subtotal
+		ag.Costo += v.Costo
+		ag.CostoOferta += v.Costo
+		agrupacion[v.Departamento] = ag
+	}
+
+	encabezadosAgrupados := []string{
+		"Departamento", "Monto", "Porcentaje Monto", "Costo", "Utilidad",
+		"Porcentaje Utilidad Monto", "Porcentaje Utilidad", "Costo Oferta",
+	}
+	offsetCol := 16
+	for col, header := range encabezadosAgrupados {
+		cell, _ := excelize.CoordinatesToCellName(offsetCol+col+1, 1)
+		archivo.SetCellValue(sheet, cell, header)
+	}
+
+	var totalUtilidadPorcentaje float64
+	for _, v := range agrupacion {
+		totalUtilidadPorcentaje += safeDivide(v.Monto, totalMonto) * 100
+	}
+
+	filaAgrupada := 2
+	for depto, v := range agrupacion {
+		utilidad := v.Monto - v.Costo
+		porcentajeUtilidad := safeDivide(utilidad, v.Monto) * 100
+		porcentajeSobreTotal := safeDivide(porcentajeUtilidad, totalUtilidadPorcentaje) * 100
+
+		archivo.SetCellValue(sheet, fmt.Sprintf("Q%d", filaAgrupada), depto)
+		archivo.SetCellValue(sheet, fmt.Sprintf("R%d", filaAgrupada), v.Monto)
+		archivo.SetCellValue(sheet, fmt.Sprintf("S%d", filaAgrupada), safeDivide(v.Monto, totalMonto)*100)
+		archivo.SetCellValue(sheet, fmt.Sprintf("T%d", filaAgrupada), v.Costo)
+		archivo.SetCellValue(sheet, fmt.Sprintf("U%d", filaAgrupada), utilidad)
+		archivo.SetCellValue(sheet, fmt.Sprintf("V%d", filaAgrupada), porcentajeUtilidad)
+		archivo.SetCellValue(sheet, fmt.Sprintf("W%d", filaAgrupada), porcentajeSobreTotal)
+		archivo.SetCellValue(sheet, fmt.Sprintf("X%d", filaAgrupada), v.CostoOferta)
+		filaAgrupada++
+	}
+
+	return archivo.SaveAs("reporte.xlsx")
 }
