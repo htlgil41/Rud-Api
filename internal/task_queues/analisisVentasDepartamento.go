@@ -1,8 +1,10 @@
 package taskqueues
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +25,25 @@ type AgrupacionDepartamento struct {
 	PorcentajeUtilidadMonto float64
 	PorcentajeUtilidad      float64
 	CostoOferta             float64
+}
+
+type DashboardData struct {
+	TotalMonto      float64                     `json:"totalMonto"`
+	TotalCosto      float64                     `json:"totalCosto"`
+	TotalUtilidad   float64                     `json:"totalUtilidad"`
+	MargenPromedio  float64                     `json:"margenPromedio"`
+	CantidadDeptos  int                         `json:"cantidadDeptos"`
+	Departamentos   []DepartamentoDashboardData `json:"departamentos"`
+	FechaGeneracion string                      `json:"fechaGeneracion"`
+}
+
+type DepartamentoDashboardData struct {
+	Nombre             string  `json:"nombre"`
+	Monto              float64 `json:"monto"`
+	Costo              float64 `json:"costo"`
+	Utilidad           float64 `json:"utilidad"`
+	PorcentajeMonto    float64 `json:"porcentajeMonto"`
+	PorcentajeUtilidad float64 `json:"porcentajeUtilidad"`
 }
 
 func safeDivide(numerator, denominator float64) float64 {
@@ -100,13 +121,27 @@ func AnalisisDepartamentoQueueTask(
 	}
 	bitacora.WriteString("\nInformación recolectada correctamente. Procediendo a crear el Excel.")
 
-	err := generarExcelDepartamentos(ventasData)
+	agrupacion, total_monto, err := generarExcelDepartamentos(ventasData)
 	if err != nil {
 		bitacora.WriteString("\nError al construir el archivo Excel: ")
 		bitacora.WriteString(err.Error())
 		estadoFinal = consts.EstadoReporteFallo
 		message.Ack(false)
 		return
+	}
+
+	dashboardHTMLBytes, err := generarHTMLDashboard(agrupacion, total_monto)
+	if err != nil {
+		bitacora.WriteString("\nError al construir el dashboard HTML: ")
+		bitacora.WriteString(err.Error())
+		estadoFinal = consts.EstadoReporteFallo
+		message.Ack(false)
+		return
+	}
+
+	if errHtml := os.WriteFile("reporte.html", dashboardHTMLBytes, 0644); errHtml != nil {
+		bitacora.WriteString("\nError al construir el archivo HTML: ")
+		bitacora.WriteString(errHtml.Error())
 	}
 
 	bitacora.WriteString("\nRud ha construido el reporte correctamente")
@@ -120,10 +155,14 @@ func AnalisisDepartamentoQueueTask(
 		return
 	}
 
-	log.Println("Proceso de reporte completado exitosamente")
+	log.Println("Proceso de reporte de departamento completado exitosamente")
 }
 
-func generarExcelDepartamentos(ventasData []types.VentasDepartamento) error {
+func generarExcelDepartamentos(ventasData []types.VentasDepartamento) (
+	map[string]AgrupacionDepartamento,
+	float64,
+	error,
+) {
 	archivo := excelize.NewFile()
 	defer archivo.Close()
 
@@ -204,5 +243,333 @@ func generarExcelDepartamentos(ventasData []types.VentasDepartamento) error {
 		filaAgrupada++
 	}
 
-	return archivo.SaveAs("reporte.xlsx")
+	return agrupacion, totalMonto, archivo.SaveAs("reporte.xlsx")
+}
+
+func generarHTMLDashboard(agrupacion map[string]AgrupacionDepartamento, totalMonto float64) ([]byte, error) {
+	var totalCosto, totalUtilidad float64
+	var departamentos []DepartamentoDashboardData
+
+	for nombre, v := range agrupacion {
+		utilidad := v.Monto - v.Costo
+		totalCosto += v.Costo
+		totalUtilidad += utilidad
+
+		porcentajeMonto := safeDivide(v.Monto, totalMonto) * 100
+		porcentajeUtilidad := safeDivide(utilidad, v.Monto) * 100
+
+		departamentos = append(departamentos, DepartamentoDashboardData{
+			Nombre:             nombre,
+			Monto:              v.Monto,
+			Costo:              v.Costo,
+			Utilidad:           utilidad,
+			PorcentajeMonto:    porcentajeMonto,
+			PorcentajeUtilidad: porcentajeUtilidad,
+		})
+	}
+
+	dashboardData := DashboardData{
+		TotalMonto:      totalMonto,
+		TotalCosto:      totalCosto,
+		TotalUtilidad:   totalUtilidad,
+		MargenPromedio:  safeDivide(totalUtilidad, totalMonto) * 100,
+		CantidadDeptos:  len(agrupacion),
+		Departamentos:   departamentos,
+		FechaGeneracion: time.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	dataJSON, err := json.Marshal(dashboardData)
+	if err != nil {
+		return nil, fmt.Errorf("error serializando datos del dashboard: %w", err)
+	}
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Análisis de Departamentos</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .header h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        .header p { color: #666; }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .kpi-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .kpi-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        .kpi-label { color: #888; font-size: 0.9em; text-transform: uppercase; letter-spacing: 1px; }
+        .kpi-card.profit .kpi-value { color: #10b981; }
+        .kpi-card.cost .kpi-value { color: #ef4444; }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .chart-card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.2em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+        }
+        .footer {
+            text-align: center;
+            color: white;
+            padding: 20px;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Dashboard de Análisis por Departamento</h1>
+            <p>Generado el: <strong id="fechaGeneracion"></strong></p>
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Monto Total</div>
+                <div class="kpi-value" id="kpiMonto">$0</div>
+            </div>
+            <div class="kpi-card cost">
+                <div class="kpi-label">Costo Total</div>
+                <div class="kpi-value" id="kpiCosto">$0</div>
+            </div>
+            <div class="kpi-card profit">
+                <div class="kpi-label">Utilidad Total</div>
+                <div class="kpi-value" id="kpiUtilidad">$0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Margen Promedio</div>
+                <div class="kpi-value" id="kpiMargen">0%%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Departamentos</div>
+                <div class="kpi-value" id="kpiDeptos">0</div>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h2>🥧 Distribución de Monto por Departamento</h2>
+                <div class="chart-container">
+                    <canvas id="chartDona"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <h2>📊 Monto vs Costo vs Utilidad</h2>
+                <div class="chart-container">
+                    <canvas id="chartBarras"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <h2>💰 Margen de Utilidad por Departamento</h2>
+                <div class="chart-container">
+                    <canvas id="chartMargen"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <h2>📈 Ranking por Monto</h2>
+                <div class="chart-container">
+                    <canvas id="chartRanking"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Reporte generado automáticamente por Rud API</p>
+        </div>
+    </div>
+
+    <script>
+        // Los datos se inyectan aquí desde Go como JSON
+        const rawData = %s;
+
+        // Deserializar y mostrar
+        document.getElementById('fechaGeneracion').textContent = rawData.fechaGeneracion;
+        document.getElementById('kpiMonto').textContent = '$' + rawData.totalMonto.toLocaleString('es-MX', {maximumFractionDigits: 2});
+        document.getElementById('kpiCosto').textContent = '$' + rawData.totalCosto.toLocaleString('es-MX', {maximumFractionDigits: 2});
+        document.getElementById('kpiUtilidad').textContent = '$' + rawData.totalUtilidad.toLocaleString('es-MX', {maximumFractionDigits: 2});
+        document.getElementById('kpiMargen').textContent = rawData.margenPromedio.toFixed(2) + '%%';
+        document.getElementById('kpiDeptos').textContent = rawData.cantidadDeptos;
+
+        // Ordenar departamentos por monto descendente
+        const deptos = rawData.departamentos.sort((a, b) => b.monto - a.monto);
+        const nombres = deptos.map(d => d.nombre);
+        const montos = deptos.map(d => d.monto);
+        const costos = deptos.map(d => d.costo);
+        const utilidades = deptos.map(d => d.utilidad);
+        const porcentajesMonto = deptos.map(d => d.porcentajeMonto);
+        const porcentajesUtilidad = deptos.map(d => d.porcentajeUtilidad);
+
+        // Paleta de colores
+        const colores = [
+            '#667eea', '#764ba2', '#f093fb', '#4facfe', '#00f2fe',
+            '#43e97b', '#fa709a', '#fee140', '#30cfd0', '#a8edea'
+        ];
+
+        // 1. Gráfica de Dona - Distribución
+        new Chart(document.getElementById('chartDona'), {
+            type: 'doughnut',
+            data: {
+                labels: nombres,
+                datasets: [{
+                    data: porcentajesMonto,
+                    backgroundColor: colores.slice(0, nombres.length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right' },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => ctx.label + ': ' + ctx.parsed.toFixed(2) + '%%'
+                        }
+                    }
+                }
+            }
+        });
+
+        // 2. Gráfica de Barras Agrupadas
+        new Chart(document.getElementById('chartBarras'), {
+            type: 'bar',
+            data: {
+                labels: nombres,
+                datasets: [
+                    { label: 'Monto', data: montos, backgroundColor: '#667eea' },
+                    { label: 'Costo', data: costos, backgroundColor: '#ef4444' },
+                    { label: 'Utilidad', data: utilidades, backgroundColor: '#10b981' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => ctx.dataset.label + ': $' + ctx.parsed.y.toLocaleString('es-MX', {maximumFractionDigits: 2})
+                        }
+                    }
+                },
+                scales: {
+                    y: { ticks: { callback: (v) => '$' + v.toLocaleString('es-MX') } }
+                }
+            }
+        });
+
+        // 3. Gráfica de Margen (%)
+        new Chart(document.getElementById('chartMargen'), {
+            type: 'bar',
+            data: {
+                labels: nombres,
+                datasets: [{
+                    label: 'Margen de Utilidad (%%)',
+                    data: porcentajesUtilidad,
+                    backgroundColor: colores.slice(0, nombres.length)
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => ctx.parsed.y.toFixed(2) + '%%'
+                        }
+                    }
+                },
+                scales: {
+                    y: { ticks: { callback: (v) => v + '%%' } }
+                }
+            }
+        });
+
+        // 4. Ranking horizontal
+        new Chart(document.getElementById('chartRanking'), {
+            type: 'bar',
+            data: {
+                labels: nombres,
+                datasets: [{
+                    label: 'Monto Total',
+                    data: montos,
+                    backgroundColor: '#764ba2'
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => '$' + ctx.parsed.x.toLocaleString('es-MX', {maximumFractionDigits: 2})
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { callback: (v) => '$' + v.toLocaleString('es-MX') } }
+                }
+            }
+        });
+    </script>
+</body>
+</html>`, string(dataJSON))
+
+	return []byte(html), nil
 }

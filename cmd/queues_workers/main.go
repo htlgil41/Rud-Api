@@ -166,6 +166,7 @@ func main() {
 				}
 			case "AN_GRUPO":
 				{
+					log.Printf("Analisis de ventas grupo")
 					taskqueues.AnalisisGrupoQueueTask(
 						msg,
 						reporte_infor.QueryPrepare,
@@ -176,7 +177,7 @@ func main() {
 				}
 			case "AN_SUBGRUPO":
 				{
-					log.Printf("Reporte subgrupo analis")
+					log.Printf("Analisis de ventas subgrupo")
 					taskqueues.AnalisisSubGrupoQueueTask(
 						message,
 						reporte_infor.QueryPrepare,
