@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -21,6 +22,13 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+type Connection struct {
+	IP       string
+	Username string
+	Password string
+	Sucursal string
+}
+
 const numeroWorkers = 5
 
 func main() {
@@ -38,11 +46,51 @@ func main() {
 		cfg.DB.PGDBRud.DB,
 	)
 
-	moduloReporteRepo := &repositories.ModuloReporteRepositorioPg{Pool: pgDB.Pool}
+	pgAvisorForConnections := &databases.PgDatabase{}
+	pgAvisorForConnections.CreatePgDatabase(
+		"192.168.5.193",
+		5432,
+		"aaron",
+		"Wh0shotcupid+411",
+		"avisor",
+	)
+	defer pgAvisorForConnections.Pool.Close()
+	if err := pgAvisorForConnections.Pool.Ping(context.Background()); err != nil {
+		log.Printf("No se ha podido establecer conexion")
+		return
+	}
+	connections, errConnections := pgAvisorForConnections.Pool.Query(context.Background(), "select ip, username, password, sucursal from connections")
+	if errConnections != nil {
+		log.Printf("No se ha podido recolectar la informacion de conexion")
+		return
+	}
+	defer connections.Close()
 
-	mssqlDB := &databases.MssqlDatabase{}
-	mssqlDB.CreateMssqlDatabase(cfg.DB.CorporativoDB.URI)
-	analisisRepo := &repositories.AnalisisVentasRepositorie{Db: mssqlDB.Db}
+	moduloReporteRepo := &repositories.ModuloReporteRepositorioPg{Pool: pgDB.Pool}
+	analisisRepo := []*repositories.AnalisisVentasRepositorie{}
+	for connections.Next() {
+		var conn Connection
+		err := connections.Scan(&conn.IP, &conn.Username, &conn.Password, &conn.Sucursal)
+		if err != nil {
+			log.Printf("Error al escanear la fila de conexion: %v", err)
+			continue
+		}
+
+		ipOnly, _, _ := strings.Cut(conn.IP, "\\")
+		mssqlDB := &databases.MssqlDatabase{}
+		mssqlDB.CreateMssqlDatabase(fmt.Sprintf(
+			"sqlserver://%s:%s@%s?database=%s&connection+timeout=30",
+			conn.Username,
+			conn.Password,
+			ipOnly,
+			"VAD10",
+		))
+
+		analisisRepo = append(analisisRepo, &repositories.AnalisisVentasRepositorie{
+			Sucursal: conn.Sucursal,
+			Db:       mssqlDB.Db,
+		})
+	}
 
 	rabbit := &queues.RabbitQueue{}
 	if errRabbit := rabbit.ConnectRabbit(cfg.Rabbit); errRabbit != nil {
@@ -167,24 +215,24 @@ func main() {
 			case "AN_GRUPO":
 				{
 					log.Printf("Analisis de ventas grupo")
-					taskqueues.AnalisisGrupoQueueTask(
+					/*taskqueues.AnalisisGrupoQueueTask(
 						msg,
 						reporte_infor.QueryPrepare,
 						moduloReporteRepo,
 						analisisRepo,
 						evento,
-					)
+					)*/
 				}
 			case "AN_SUBGRUPO":
 				{
 					log.Printf("Analisis de ventas subgrupo")
-					taskqueues.AnalisisSubGrupoQueueTask(
+					/*taskqueues.AnalisisSubGrupoQueueTask(
 						message,
 						reporte_infor.QueryPrepare,
 						moduloReporteRepo,
 						analisisRepo,
 						evento,
-					)
+					)*/
 				}
 			default:
 				{

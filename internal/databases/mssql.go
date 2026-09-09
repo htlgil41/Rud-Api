@@ -17,9 +17,9 @@ func (r *MssqlDatabase) CreateMssqlDatabase(path_uri string) {
 	if errDb != nil {
 	}
 
-	db.SetMaxOpenConns(8)
-	db.SetMaxIdleConns(8)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(15 * time.Minute)
 	db.SetConnMaxIdleTime(time.Minute)
 
 	r.Db = db

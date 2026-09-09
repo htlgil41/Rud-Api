@@ -3,7 +3,7 @@ package types
 import "time"
 
 type VentasDepartamento struct {
-	Fecha        time.Time
+	Fecha        string
 	Sucursal     string
 	Departamento string
 	Diferencia   float64

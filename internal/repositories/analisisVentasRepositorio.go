@@ -10,7 +10,8 @@ import (
 )
 
 type AnalisisVentasRepositorie struct {
-	Db *sql.DB
+	Sucursal string
+	Db       *sql.DB
 }
 
 func (r *AnalisisVentasRepositorie) GetDepartamentosCodigos() ([]string, error) {
@@ -104,7 +105,7 @@ func (r *AnalisisVentasRepositorie) GetVentasDepartamento(
 	departamento_filters string,
 ) ([]types.VentasDepartamento, error) {
 	var resultado []types.VentasDepartamento = []types.VentasDepartamento{}
-	ctx, cancelCtx := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelCtx()
 
 	rows, errRows := r.Db.QueryContext(
@@ -136,6 +137,7 @@ func (r *AnalisisVentasRepositorie) GetVentasDepartamento(
 			&v.Total,
 			&v.CostoOferta,
 		)
+
 		resultado = append(resultado, v)
 	}
 
