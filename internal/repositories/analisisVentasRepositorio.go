@@ -156,9 +156,8 @@ func (r *AnalisisVentasRepositorie) GetVentasGrupo(
 	grupo_filters string,
 ) ([]types.VentasGrupo, error) {
 	var resultado []types.VentasGrupo = []types.VentasGrupo{}
-	ctx, cancelCtx := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelCtx()
-
 	rows, errRows := r.Db.QueryContext(
 		ctx,
 		helpers.TranformQuerysAddParametersStringsFlag(
@@ -188,6 +187,7 @@ func (r *AnalisisVentasRepositorie) GetVentasGrupo(
 			&v.Utilidad,
 			&v.CostoOferta,
 		)
+
 		resultado = append(resultado, v)
 	}
 

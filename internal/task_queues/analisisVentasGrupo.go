@@ -6,12 +6,12 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/xuri/excelize/v2"
 
-	"rud-api/internal/consts"
 	"rud-api/internal/helpers"
 	"rud-api/internal/repositories"
 	"rud-api/internal/types"
@@ -27,108 +27,56 @@ type AgrupacionSubGrupo struct {
 	CostoOferta             float64
 }
 
+type WorkerResultGrupoWithVitacora struct {
+	Departamento []types.VentasGrupo
+	Bitacora     *strings.Builder
+}
+
 func AnalisisGrupoQueueTask(
 	message amqp.Delivery,
 	query string,
 	repo *repositories.ModuloReporteRepositorioPg,
-	analisisRepo *repositories.AnalisisVentasRepositorie,
+	analisisRepos []*repositories.AnalisisVentasRepositorie,
 	evento types.ReporteSolicitadoEvent,
 ) {
 	var bitacora strings.Builder
-	var estadoFinal string
+	tamCanal := len(analisisRepos)
+	if tamCanal == 0 {
+		tamCanal = 1
+	}
 
-	defer func() {
-		if estadoFinal == "" {
-			estadoFinal = consts.EstadoReporteFallo
-		}
-		if err := repo.ActualizarEstadoReporte(evento.ReporteID, estadoFinal, bitacora.String()); err != nil {
-			log.Printf("Error crítico actualizando estado final del reporte %s: %v", evento.ReporteID, err)
-		}
+	ventasCh := make(chan WorkerResultGrupoWithVitacora, tamCanal)
+	var wg sync.WaitGroup
+
+	for i, analisisRepo := range analisisRepos {
+		wg.Add(1)
+		go func(idx int, ar *repositories.AnalisisVentasRepositorie) {
+			defer wg.Done()
+			localBitacora := &strings.Builder{}
+			fmt.Fprintf(localBitacora, "\n-----\nSUCURSAL BITACORA %s\n------\n", ar.Sucursal)
+			valor := RecolectGrupoAnalisisSucursal(
+				query,
+				evento,
+				ar,
+				localBitacora,
+			)
+
+			ventasCh <- WorkerResultGrupoWithVitacora{
+				Departamento: valor,
+				Bitacora:     localBitacora,
+			}
+		}(i, analisisRepo)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ventasCh)
 	}()
 
-	bitacora.WriteString("Evento recibido para su procesamiento")
-	start, errStart := time.Parse("2006-01-02", evento.Parametros[0])
-	end, errEnd := time.Parse("2006-01-02", evento.Parametros[1])
-	if errStart != nil || errEnd != nil {
-		bitacora.WriteString("\nError al parsear los parámetros a fecha")
-		estadoFinal = consts.EstadoReporteFallo
-		message.Ack(false)
-		return
-	}
-
-	rangoFechas, errDates := helpers.GeneratesDatesNoMayorToday(start, end)
-	if errDates != nil {
-		bitacora.WriteString("\nError generando rango de fechas: ")
-		bitacora.WriteString(errDates.Error())
-		estadoFinal = consts.EstadoReporteFallo
-		message.Ack(false)
-		return
-	}
-	fmt.Fprintf(&bitacora, "\nFechas generadas correctamente (%d días)", len(rangoFechas))
-	departamentos, errDep := analisisRepo.GetDepartamentosCodigos()
-	if errDep != nil {
-		bitacora.WriteString("\nError obteniendo departamentos: ")
-		bitacora.WriteString(errDep.Error())
-		estadoFinal = consts.EstadoReporteFallo
-		message.Ack(false)
-		return
-	}
-
-	grupos, errGrupo := analisisRepo.GetGrupoCodigos()
-	if errGrupo != nil {
-		bitacora.WriteString("\nError obteniendo grupos: ")
-		bitacora.WriteString(errGrupo.Error())
-		estadoFinal = consts.EstadoReporteFallo
-		message.Ack(false)
-		return
-	}
-	bitacora.WriteString("\nDepartamentos y grupos obtenidos correctamente")
-
-	deptosInSQL := helpers.TransformSliceToInSqlString(departamentos)
-	gruposInSQL := helpers.TransformSliceToInSqlString(grupos)
 	var ventasData []types.VentasGrupo
-
-	for _, fecha := range rangoFechas {
-		datosDia, err := analisisRepo.GetVentasGrupo(query, fecha, fecha, deptosInSQL, gruposInSQL)
-		if err != nil {
-			fmt.Fprintf(&bitacora, "\nAdvertencia: error obteniendo ventas de grupo para %s: %v", fecha, err)
-			continue
-		}
-		ventasData = append(ventasData, datosDia...)
-	}
-
-	if len(ventasData) == 0 {
-		bitacora.WriteString("\nNo se encontraron datos para el rango de fechas seleccionado")
-		estadoFinal = consts.EstadoReporteFallo
-		message.Ack(false)
-		return
-	}
-	bitacora.WriteString("\nInformación recolectada correctamente. Procediendo a crear el Excel.")
-
-	err := generarExcelGrupo(ventasData)
-	if err != nil {
-		bitacora.WriteString("\nError al construir el archivo Excel: ")
-		bitacora.WriteString(err.Error())
-		estadoFinal = consts.EstadoReporteFallo
-		message.Ack(false)
-		return
-	}
-
-	bitacora.WriteString("\nRud ha construido el reporte correctamente")
-	estadoFinal = consts.EstadoReporteCompletado
-
-	dashboardHTMLBytes, err := generarHTMLDashboardGrupo(ventasData)
-	if err != nil {
-		bitacora.WriteString("\nError al construir el dashboard HTML: ")
-		bitacora.WriteString(err.Error())
-		estadoFinal = consts.EstadoReporteFallo
-		message.Ack(false)
-		return
-	}
-
-	if errHtml := os.WriteFile("grupo.html", dashboardHTMLBytes, 0644); errHtml != nil {
-		bitacora.WriteString("\nError al construir el archivo HTML: ")
-		bitacora.WriteString(errHtml.Error())
+	for lote := range ventasCh {
+		bitacora.WriteString(lote.Bitacora.String())
+		ventasData = append(ventasData, lote.Departamento...)
 	}
 
 	if err := message.Ack(false); err != nil {
@@ -139,7 +87,86 @@ func AnalisisGrupoQueueTask(
 		return
 	}
 
-	log.Println("Proceso de reporte de grupo completado exitosamente")
+	err := generarExcelGrupo(ventasData)
+	if err != nil {
+		bitacora.WriteString("\nError al construir el archivo Excel: ")
+		bitacora.WriteString(err.Error())
+		message.Ack(false)
+		return
+	}
+
+	bitacora.WriteString("\nRud ha construido el reporte correctamente")
+
+	dashboardHTMLBytes, err := generarHTMLDashboardGrupo(ventasData)
+	if err != nil {
+		bitacora.WriteString("\nError al construir el dashboard HTML: ")
+		bitacora.WriteString(err.Error())
+		message.Ack(false)
+		return
+	}
+
+	if errHtml := os.WriteFile("grupo.html", dashboardHTMLBytes, 0644); errHtml != nil {
+		bitacora.WriteString("\nError al construir el archivo HTML: ")
+		bitacora.WriteString(errHtml.Error())
+	}
+
+	if err := repo.ActualizarEstadoReporte(evento.ReporteID, "Error", bitacora.String()); err != nil {
+		log.Printf("Error crítico actualizando estado final del reporte %s: %v", evento.ReporteID, err)
+	}
+
+	log.Println("Proceso de reporte de departamento completado exitosamente")
+}
+
+func RecolectGrupoAnalisisSucursal(
+	query string,
+	evento types.ReporteSolicitadoEvent,
+	analisisRepo *repositories.AnalisisVentasRepositorie,
+	bitacora *strings.Builder,
+) []types.VentasGrupo {
+	var ventasData []types.VentasGrupo
+	bitacora.WriteString("Evento recibido para su procesamiento")
+	start, errStart := time.Parse("2006-01-02", evento.Parametros[0])
+	end, errEnd := time.Parse("2006-01-02", evento.Parametros[1])
+	if errStart != nil || errEnd != nil {
+		bitacora.WriteString("\nError al parsear los parámetros a fecha")
+		return ventasData
+	}
+
+	rangoFechas, errDates := helpers.GeneratesDatesNoMayorToday(start, end)
+	if errDates != nil {
+		bitacora.WriteString("\nError generando rango de fechas: ")
+		bitacora.WriteString(errDates.Error())
+		return ventasData
+	}
+	fmt.Fprintf(bitacora, "\nFechas generadas correctamente (%d días)", len(rangoFechas))
+	departamentos, errDep := analisisRepo.GetDepartamentosCodigos()
+	if errDep != nil {
+		bitacora.WriteString("\nError obteniendo departamentos: ")
+		bitacora.WriteString(errDep.Error())
+		return ventasData
+	}
+
+	grupos, errGrupo := analisisRepo.GetGrupoCodigos()
+	if errGrupo != nil {
+		bitacora.WriteString("\nError obteniendo grupos: ")
+		bitacora.WriteString(errGrupo.Error())
+		return ventasData
+	}
+	bitacora.WriteString("\nDepartamentos y grupos obtenidos correctamente")
+
+	deptosInSQL := helpers.TransformSliceToInSqlString(departamentos)
+	gruposInSQL := helpers.TransformSliceToInSqlString(grupos)
+	datosDia, err := analisisRepo.GetVentasGrupo(query, start.Format("20060102"), end.Format("20060102"), deptosInSQL, gruposInSQL)
+	if err != nil {
+		fmt.Fprintf(bitacora, "\nAdvertencia: error obteniendo ventas de grupo para %s: %s", start.Format("20060102"), err.Error())
+	}
+	ventasData = append(ventasData, datosDia...)
+	if len(ventasData) == 0 {
+		bitacora.WriteString("\nNo se encontraron datos para el rango de fechas seleccionado")
+	}
+	bitacora.WriteString("\nInformación recolectada correctamente. Procediendo a crear el Excel.")
+
+	return ventasData
 }
 
 func generarExcelGrupo(ventasData []types.VentasGrupo) error {
@@ -164,7 +191,7 @@ func generarExcelGrupo(ventasData []types.VentasGrupo) error {
 
 	for row, data := range ventasData {
 		fila := row + 2
-		archivo.SetCellValue(sheet, fmt.Sprintf("A%d", fila), data.Fecha.Format("2006-01-02"))
+		archivo.SetCellValue(sheet, fmt.Sprintf("A%d", fila), data.Fecha)
 		archivo.SetCellValue(sheet, fmt.Sprintf("B%d", fila), data.Sucursal)
 		archivo.SetCellValue(sheet, fmt.Sprintf("C%d", fila), data.Grupo)
 		archivo.SetCellValue(sheet, fmt.Sprintf("D%d", fila), data.Departamento)

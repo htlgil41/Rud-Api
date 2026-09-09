@@ -19,7 +19,7 @@ type VentasDepartamento struct {
 }
 
 type VentasGrupo struct {
-	Fecha        time.Time
+	Fecha        string
 	Sucursal     string
 	Grupo        string
 	Departamento string

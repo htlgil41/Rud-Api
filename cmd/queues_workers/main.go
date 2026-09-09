@@ -215,13 +215,13 @@ func main() {
 			case "AN_GRUPO":
 				{
 					log.Printf("Analisis de ventas grupo")
-					/*taskqueues.AnalisisGrupoQueueTask(
+					taskqueues.AnalisisGrupoQueueTask(
 						msg,
 						reporte_infor.QueryPrepare,
 						moduloReporteRepo,
 						analisisRepo,
 						evento,
-					)*/
+					)
 				}
 			case "AN_SUBGRUPO":
 				{
