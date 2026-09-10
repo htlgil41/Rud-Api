@@ -202,23 +202,14 @@ func (r *AnalisisVentasRepositorie) GetVentasSubGrupo(
 	query string,
 	fecha_start string,
 	fecha_end string,
-	departamento_filters string,
-	grupo_filters string,
-	subGrupo_filters string,
 ) ([]types.SubGrupo, error) {
 	var resultado []types.SubGrupo = []types.SubGrupo{}
-	ctx, cancelCtx := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Minute)
 	defer cancelCtx()
 
 	rows, errRows := r.Db.QueryContext(
 		ctx,
-		helpers.TranformQuerysAddParametersStringsFlag(
-			query,
-			[]any{
-				departamento_filters, grupo_filters, subGrupo_filters,
-				departamento_filters, grupo_filters, subGrupo_filters,
-			},
-		),
+		query,
 		fecha_start,
 		fecha_end,
 	)

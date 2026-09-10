@@ -1,7 +1,5 @@
 package types
 
-import "time"
-
 type VentasDepartamento struct {
 	Fecha        string
 	Sucursal     string
@@ -36,7 +34,7 @@ type VentasGrupo struct {
 
 type SubGrupo struct {
 	Sucursal     string
-	Fecha        time.Time
+	Fecha        string
 	Departamento string
 	Grupo        string
 	SubGrupo     string

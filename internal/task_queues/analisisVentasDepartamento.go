@@ -278,467 +278,795 @@ func generarExcelDepartamentos(ventasData []types.VentasDepartamento) error {
 }
 
 func generarHTMLDashboard(ventasData []types.VentasDepartamento) ([]byte, error) {
-	// Cálculo del resumen por departamento (se mantiene igual)
-	agrupacion := make(map[string]AgrupacionDepartamento)
-	var totalMonto float64
-
-	for _, v := range ventasData {
-		ag := agrupacion[v.Departamento]
-		ag.Monto += v.Subtotal
-		ag.Costo += v.Costo
-		ag.CostoOferta += v.Costo
-		agrupacion[v.Departamento] = ag
-		totalMonto += v.Subtotal
-	}
-
-	var totalCosto, totalUtilidad float64
-	var departamentos []DepartamentoDashboardData
-
-	for nombre, v := range agrupacion {
-		utilidad := v.Monto - v.Costo
-		totalCosto += v.Costo
-		totalUtilidad += utilidad
-
-		porcentajeMonto := safeDivide(v.Monto, totalMonto) * 100
-		porcentajeUtilidad := safeDivide(utilidad, v.Monto) * 100
-
-		departamentos = append(departamentos, DepartamentoDashboardData{
-			Nombre:             nombre,
-			Monto:              v.Monto,
-			Costo:              v.Costo,
-			Utilidad:           utilidad,
-			PorcentajeMonto:    porcentajeMonto,
-			PorcentajeUtilidad: porcentajeUtilidad,
-		})
-	}
-
-	dashboardData := DashboardData{
-		TotalMonto:      totalMonto,
-		TotalCosto:      totalCosto,
-		TotalUtilidad:   totalUtilidad,
-		MargenPromedio:  safeDivide(totalUtilidad, totalMonto) * 100,
-		CantidadDeptos:  len(agrupacion),
-		Departamentos:   departamentos,
-		FechaGeneracion: time.Now().Format("2006-01-02 15:04:05"),
-		// NO se incluye Ventas aquí
-	}
-
-	dataJSON, err := json.Marshal(dashboardData)
+	dataJSON, err := json.Marshal(ventasData)
 	if err != nil {
 		return nil, fmt.Errorf("error serializando datos del dashboard: %w", err)
 	}
 
-	ventasJSON, err := json.Marshal(ventasData)
-	if err != nil {
-		return nil, fmt.Errorf("error serializando datos de ventas: %w", err)
-	}
-
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	html := strings.Replace(
+		`
+            <!doctype html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Análisis de Departamentos</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
-            min-height: 100vh;
-            padding: 20px;
-            color: #333;
-        }
-        .container { max-width: 1600px; margin: 0 auto; }
-        .header {
-            background: white;
-            border-radius: 12px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        .header h1 { color: #667eea; margin-bottom: 10px; }
-        .header p { color: #666; }
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .kpi-card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .kpi-value {
-            font-size: 2em;
-            font-weight: bold;
-            color: #667eea;
-            margin: 10px 0;
-        }
-        .kpi-label { color: #888; font-size: 0.9em; text-transform: uppercase; letter-spacing: 1px; }
-        .kpi-card.profit .kpi-value { color: #10b981; }
-        .kpi-card.cost .kpi-value { color: #ef4444; }
-        .filters {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            align-items: flex-end;
-        }
-        .filter-group {
-            display: flex;
-            flex-direction: column;
-            min-width: 150px;
-        }
-        .filter-group label {
-            font-size: 0.85em;
-            color: #666;
-            margin-bottom: 5px;
-            font-weight: 500;
-        }
-        .filter-group select, .filter-group input {
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 0.95em;
-            background: white;
-        }
-        .btn-export {
-            background: #10b981;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 0.95em;
-            transition: background 0.2s;
-        }
-        .btn-export:hover { background: #059669; }
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .chart-card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-        .chart-card h2 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 1.2em;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
-        }
-        .chart-container { position: relative; height: 400px; }
-        .table-card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-            overflow: hidden;
-        }
-        .table-card h2 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 1.2em;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
-        }
-        .table-wrapper {
-            max-height: 500px;
-            overflow-y: auto;
-            border: 1px solid #eee;
-            border-radius: 8px;
-        }
-        table {
-            width: 100%%;
-            border-collapse: collapse;
-            font-size: 0.9em;
-        }
-        th, td {
-            padding: 10px 12px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-            white-space: nowrap;
-        }
-        th {
-            background: #f8f9fa;
-            font-weight: 600;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            box-shadow: 0 2px 2px rgba(0,0,0,0.05);
-        }
-        tr:hover td { background: #f8f9fa; }
-        .footer { text-align: center; color: white; padding: 20px; opacity: 0.9; }
-        @media (max-width: 768px) {
-            .charts-grid { grid-template-columns: 1fr; }
-            .filters { flex-direction: column; align-items: stretch; }
-            .filter-group { width: 100%%; }
-        }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard Comparativo por Departamento</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = { darkMode: 'class' };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+
+  <style>
+    .card {
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgb(30 41 59);
+      border-radius: 1rem;
+      padding: 1rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    }
+    .thead-cell {
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .thead-cell-right {
+      padding: 0.5rem 0.75rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .tbody-cell {
+      padding: 0.5rem 0.75rem;
+      white-space: nowrap;
+    }
+    .tbody-cell-right {
+      padding: 0.5rem 0.75rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+  </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📊 Dashboard de Análisis por Departamento</h1>
-            <p>Generado el: <strong id="fechaGeneracion"></strong></p>
-        </div>
-        <div class="kpi-grid" id="kpiContainer"></div>
-        <div class="filters">
-            <div class="filter-group">
-                <label for="sucursalSelect">Sucursal</label>
-                <select id="sucursalSelect"><option value="todas">Todas</option></select>
-            </div>
-            <div class="filter-group">
-                <label for="fechaDesde">Fecha desde</label>
-                <input type="date" id="fechaDesde">
-            </div>
-            <div class="filter-group">
-                <label for="fechaHasta">Fecha hasta</label>
-                <input type="date" id="fechaHasta">
-            </div>
-            <div class="filter-group">
-                <label for="departamentoSelect">Departamento</label>
-                <select id="departamentoSelect"><option value="todos">Todos</option></select>
-            </div>
-            <button class="btn-export" onclick="exportToExcel()">📥 Exportar a Excel</button>
-        </div>
-        <div class="charts-grid">
-            <div class="chart-card"><h2>🥧 Distribución de Monto por Departamento</h2><div class="chart-container"><canvas id="chartDona"></canvas></div></div>
-            <div class="chart-card"><h2>📊 Monto vs Costo vs Utilidad</h2><div class="chart-container"><canvas id="chartBarras"></canvas></div></div>
-            <div class="chart-card"><h2>🏢 Comparativa por Sucursal</h2><div class="chart-container"><canvas id="chartSucursal"></canvas></div></div>
-            <div class="chart-card"><h2>💰 Margen de Utilidad por Departamento</h2><div class="chart-container"><canvas id="chartMargen"></canvas></div></div>
-        </div>
-        <div class="table-card">
-            <h2>📋 Datos Detallados <span id="registroCount" style="font-size:0.8em;color:#888;"></span></h2>
-            <div class="table-wrapper">
-                <table id="dataTable">
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Sucursal</th>
-                            <th>Departamento</th>
-                            <th>Diferencia</th>
-                            <th>Subtotal</th>
-                            <th>Cantidad</th>
-                            <th>Utilidad</th>
-                            <th>NCosto</th>
-                            <th>Precio</th>
-                            <th>Costo</th>
-                            <th>Utilidad%%</th>
-                            <th>Total</th>
-                            <th>CostoOferta</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody"></tbody>
-                </table>
-            </div>
-        </div>
-        <div class="footer"><p>Reporte generado automáticamente por Rud API</p></div>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+  <div id="loader" class="fixed inset-0 z-50 bg-slate-950/95 flex flex-col items-center justify-center gap-4 px-6">
+    <div class="w-14 h-14 border-4 border-slate-700 border-t-emerald-400 rounded-full animate-spin"></div>
+    <div id="loaderMsg" class="text-sm text-slate-300">Procesando data...</div>
+    <div class="w-80 max-w-[90vw] h-2 bg-slate-800 rounded-full overflow-hidden">
+      <div id="progress" class="h-full bg-emerald-400 transition-all duration-200" style="width:0%"></div>
     </div>
-    <script>
-        const rawData = %s;      // Datos agregados del dashboard (opcional)
-        const rawVentas = %s;    // Datos crudos de ventas (array de VentasDepartamento)
+  </div>
 
-        let filteredData = [];
-        let charts = {};
+  <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3">
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="min-w-[220px]">
+        <h1 class="text-lg font-bold leading-tight">Dashboard Comparativo por Departamento</h1>
+        <p id="subtitle" class="text-xs text-slate-400">Cargando...</p>
+      </div>
 
-        document.addEventListener('DOMContentLoaded', function() {
-            document.getElementById('fechaGeneracion').textContent = rawData.fechaGeneracion;
-            populateSelects();
-            applyFilters();
-            createCharts();
-            updateCharts();
+      <div class="ml-auto flex flex-wrap items-end gap-2">
+        <label class="text-xs text-slate-300 flex flex-col gap-1">
+          Sucursal
+          <select id="branchFilter" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <option value="all">Todas</option>
+          </select>
+        </label>
+
+        <label class="text-xs text-slate-300 flex flex-col gap-1">
+          Métrica
+          <select id="metric" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <option value="monto">Ventas</option>
+            <option value="utilidad">Utilidad</option>
+            <option value="margen">Margen %</option>
+            <option value="crecimiento">Crecimiento %</option>
+          </select>
+        </label>
+
+        <button id="exportExcel" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-lg px-3 py-2 text-sm transition-colors">
+          Exportar Excel
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="dashboard" class="p-4 space-y-4 opacity-0 transition-opacity duration-300">
+
+    <section id="kpis" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"></section>
+
+    <section class="grid gap-4 xl:grid-cols-2">
+      <div class="card xl:col-span-2">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <h2 class="font-semibold">Comparativo de Ventas por Sucursal</h2>
+        </div>
+        <div class="h-80">
+          <canvas id="chartBranchComparison"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 xl:grid-cols-2">
+      <div class="card">
+        <h2 class="font-semibold mb-3">Crecimiento por Sucursal</h2>
+        <div class="h-72">
+          <canvas id="chartBranchGrowth"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="font-semibold mb-3">Top Sucursales · <span id="topBranchMetric">Ventas</span></h2>
+        <div class="h-72">
+          <canvas id="chartTopBranches"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-4 xl:grid-cols-2">
+      <div class="card">
+        <h2 class="font-semibold mb-3">Top Departamento · <span id="topMetricLabel">Ventas</span></h2>
+        <div class="h-72">
+          <canvas id="chartDepartamentoTop"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="font-semibold mb-3">Bottom Departamento · <span id="bottomMetricLabel">Ventas</span></h2>
+        <div class="h-72">
+          <canvas id="chartDepartamentoBottom"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h2 class="font-semibold">Comparativo por Sucursal</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="text-slate-300 text-xs uppercase">
+            <tr>
+              <th class="thead-cell">Sucursal</th>
+              <th class="thead-cell-right">Ventas</th>
+              <th class="thead-cell-right">Costo</th>
+              <th class="thead-cell-right">Utilidad</th>
+              <th class="thead-cell-right">Margen %</th>
+              <th class="thead-cell-right">Part. %</th>
+              <th class="thead-cell-right">Crecimiento %</th>
+              <th class="thead-cell-right">Departamentos</th>
+            </tr>
+          </thead>
+          <tbody id="branchTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h2 class="font-semibold">Resultados por Departamento</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead id="departamentoHead" class="text-slate-300 text-xs uppercase">
+            <tr>
+              <th data-sort="nombre" class="thead-cell cursor-pointer hover:text-white">Departamento</th>
+              <th data-sort="monto" class="thead-cell-right cursor-pointer hover:text-white">Ventas</th>
+              <th data-sort="costo" class="thead-cell-right cursor-pointer hover:text-white">Costo</th>
+              <th data-sort="utilidad" class="thead-cell-right cursor-pointer hover:text-white">Utilidad</th>
+              <th data-sort="margen" class="thead-cell-right cursor-pointer hover:text-white">Margen %</th>
+              <th data-sort="participacion" class="thead-cell-right cursor-pointer hover:text-white">Part. %</th>
+            </tr>
+          </thead>
+          <tbody id="departamentoBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script id="raw-data" type="application/json">__RAW_DATA__</script>
+
+  <script>
+    (function () {
+      function $(id) {
+        return document.getElementById(id);
+      }
+
+      var els = {
+        loader: $('loader'),
+        loaderMsg: $('loaderMsg'),
+        progress: $('progress'),
+        dashboard: $('dashboard'),
+        subtitle: $('subtitle'),
+        branchFilter: $('branchFilter'),
+        metric: $('metric'),
+        exportExcel: $('exportExcel'),
+        kpis: $('kpis'),
+        branchTableBody: $('branchTableBody'),
+        departamentoBody: $('departamentoBody'),
+        topBranchMetric: $('topBranchMetric'),
+        topMetricLabel: $('topMetricLabel'),
+        bottomMetricLabel: $('bottomMetricLabel'),
+        charts: {}
+      };
+
+      var palette = [
+        '#34d399', '#60a5fa', '#fbbf24', '#f87171', '#a78bfa',
+        '#f472b6', '#2dd4bf', '#fb923c', '#c084fc', '#38bdf8'
+      ];
+
+      var metricLabels = {
+        monto: 'Ventas',
+        utilidad: 'Utilidad',
+        margen: 'Margen %',
+        crecimiento: 'Crecimiento %'
+      };
+
+      var state = {
+        rawData: [],
+        branches: [],
+        departamentos: [],
+        totalMonto: 0,
+        totalCosto: 0,
+        totalUtilidad: 0,
+        charts: {}
+      };
+
+      init();
+
+      function init() {
+        console.log('=== INICIANDO DASHBOARD ===');
+        
+        var rawNode = $('raw-data');
+        var rawText = rawNode ? rawNode.textContent.trim() : '[]';
+
+        if (!rawText || rawText === '__RAW_' + 'DATA__') {
+          showError('No hay datos para procesar.');
+          return;
+        }
+
+        try {
+          var data = JSON.parse(rawText);
+          
+          if (Array.isArray(data)) {
+            state.rawData = data;
+          } else {
+            state.rawData = [data];
+          }
+
+          console.log('Total registros:', state.rawData.length);
+          if (state.rawData.length > 0) {
+            console.log('Primer registro:', state.rawData[0]);
+            console.log('Keys:', Object.keys(state.rawData[0]));
+          }
+
+          processData();
+          bindEvents();
+          renderAll();
+          
+          els.dashboard.classList.remove('opacity-0');
+          hideLoader();
+        } catch (err) {
+          console.error('Error:', err);
+          showError('Error procesando datos: ' + err.message);
+        }
+      }
+
+      function processData() {
+        var branchMap = {};
+        var departamentoMap = {};
+        var totalMonto = 0;
+        var totalCosto = 0;
+        var totalUtilidad = 0;
+
+        state.rawData.forEach(function(item, idx) {
+          var sucursal = item.Sucursal || item.sucursal || 'Sin sucursal';
+          var departamento = item.Departamento || item.departamento || 'Sin departamento';
+          var monto = num(item.Subtotal || item.subtotal || item.Total || item.total);
+          var costo = num(item.NCosto || item.ncosto || item.Costo || item.costo);
+          var utilidad = num(item.Utilidad || item.utilidad);
+          if (utilidad === 0 && (monto || costo)) utilidad = monto - costo;
+
+          if (!branchMap[sucursal]) {
+            branchMap[sucursal] = {
+              nombre: sucursal,
+              monto: 0,
+              costo: 0,
+              utilidad: 0,
+              departamentos: new Set(),
+              items: []
+            };
+          }
+          branchMap[sucursal].monto += monto;
+          branchMap[sucursal].costo += costo;
+          branchMap[sucursal].utilidad += utilidad;
+          branchMap[sucursal].departamentos.add(departamento);
+          branchMap[sucursal].items.push({monto: monto, idx: idx});
+
+          if (!departamentoMap[departamento]) {
+            departamentoMap[departamento] = {
+              nombre: departamento,
+              monto: 0,
+              costo: 0,
+              utilidad: 0,
+              sucursales: new Set()
+            };
+          }
+          departamentoMap[departamento].monto += monto;
+          departamentoMap[departamento].costo += costo;
+          departamentoMap[departamento].utilidad += utilidad;
+          departamentoMap[departamento].sucursales.add(sucursal);
+
+          totalMonto += monto;
+          totalCosto += costo;
+          totalUtilidad += utilidad;
         });
 
-        function populateSelects() {
-            const sucursales = [...new Set(rawVentas.map(v => v.Sucursal))].sort();
-            const deptos = [...new Set(rawVentas.map(v => v.Departamento))].sort();
-            
-            const sucSelect = document.getElementById('sucursalSelect');
-            sucSelect.innerHTML = '<option value="todas">Todas</option>';
-            sucursales.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s;
-                opt.textContent = s;
-                sucSelect.appendChild(opt);
-            });
+        state.branches = Object.keys(branchMap).map(function(nombre, idx) {
+          var b = branchMap[nombre];
+          var margen = safeDiv(b.utilidad, b.monto) * 100;
+          var participacion = safeDiv(b.monto, totalMonto) * 100;
+          var growth = calculateGrowth(b.items);
 
-            const depSelect = document.getElementById('departamentoSelect');
-            depSelect.innerHTML = '<option value="todos">Todos</option>';
-            deptos.forEach(d => {
-                const opt = document.createElement('option');
-                opt.value = d;
-                opt.textContent = d;
-                depSelect.appendChild(opt);
-            });
+          return {
+            nombre: nombre,
+            monto: b.monto,
+            costo: b.costo,
+            utilidad: b.utilidad,
+            margen: margen,
+            participacion: participacion,
+            crecimiento: growth,
+            departamentos: b.departamentos.size,
+            color: palette[idx % palette.length]
+          };
+        });
 
-            const fechas = rawVentas.map(v => new Date(v.Fecha));
-            if (fechas.length > 0) {
-                const minDate = new Date(Math.min(...fechas));
-                const maxDate = new Date(Math.max(...fechas));
-                document.getElementById('fechaDesde').min = minDate.toISOString().split('T')[0];
-                document.getElementById('fechaDesde').max = maxDate.toISOString().split('T')[0];
-                document.getElementById('fechaHasta').min = minDate.toISOString().split('T')[0];
-                document.getElementById('fechaHasta').max = maxDate.toISOString().split('T')[0];
-            }
+        state.departamentos = Object.keys(departamentoMap).map(function(nombre) {
+          var d = departamentoMap[nombre];
+          return {
+            nombre: nombre,
+            monto: d.monto,
+            costo: d.costo,
+            utilidad: d.utilidad,
+            margen: safeDiv(d.utilidad, d.monto) * 100,
+            participacion: safeDiv(d.monto, totalMonto) * 100,
+            alcance: d.sucursales.size
+          };
+        });
+
+        state.totalMonto = totalMonto;
+        state.totalCosto = totalCosto;
+        state.totalUtilidad = totalUtilidad;
+
+        console.log('Sucursales detectadas:', state.branches.length);
+        console.log('Departamentos detectados:', state.departamentos.length);
+      }
+
+      function calculateGrowth(items) {
+        if (items.length < 2) return 0;
+        
+        var sorted = items.slice().sort(function(a, b) {
+          return a.idx - b.idx;
+        });
+
+        var mid = Math.floor(sorted.length / 2);
+        var firstHalf = sorted.slice(0, mid);
+        var secondHalf = sorted.slice(mid);
+
+        var firstSum = firstHalf.reduce(function(sum, item) { return sum + item.monto; }, 0);
+        var secondSum = secondHalf.reduce(function(sum, item) { return sum + item.monto; }, 0);
+
+        if (firstSum === 0) return secondSum > 0 ? 100 : 0;
+        return ((secondSum - firstSum) / firstSum) * 100;
+      }
+
+      function bindEvents() {
+        els.branchFilter.addEventListener('change', renderAll);
+        els.metric.addEventListener('change', function() {
+          renderBranchCharts();
+          renderDepartamentoCharts();
+        });
+        els.exportExcel.addEventListener('click', exportExcel);
+
+        Array.prototype.forEach.call(document.querySelectorAll('#departamentoHead th[data-sort]'), function (th) {
+          th.addEventListener('click', function () {
+            var key = th.getAttribute('data-sort');
+            renderDepartamentoTable();
+          });
+        });
+      }
+
+      function renderAll() {
+        renderKPIs();
+        populateBranchFilter();
+        renderBranchCharts();
+        renderDepartamentoCharts();
+        renderBranchTable();
+        renderDepartamentoTable();
+      }
+
+      function renderKPIs() {
+        var filteredBranches = getFilteredBranches();
+        var totalMonto = filteredBranches.reduce(function(sum, b) { return sum + b.monto; }, 0);
+        var totalUtilidad = filteredBranches.reduce(function(sum, b) { return sum + b.utilidad; }, 0);
+        var avgMargin = safeDiv(totalUtilidad, totalMonto) * 100;
+
+        var cards = [
+          ['Ventas Totales', fmtNum(totalMonto, 0)],
+          ['Utilidad Total', fmtNum(totalUtilidad, 0)],
+          ['Margen Promedio', fmtPct(avgMargin)],
+          ['Sucursales', fmtNum(filteredBranches.length, 0)],
+          ['Departamentos', fmtNum(state.departamentos.length, 0)]
+        ];
+
+        els.kpis.innerHTML = cards.map(function (c) {
+          return '<div class="card"><div class="text-xs text-slate-400">' + c[0] + '</div><div class="text-xl font-bold mt-1">' + c[1] + '</div></div>';
+        }).join('');
+
+        els.subtitle.textContent = filteredBranches.length + ' sucursales · ' + state.departamentos.length + ' departamentos';
+      }
+
+      function populateBranchFilter() {
+        var current = els.branchFilter.value;
+        els.branchFilter.innerHTML = '<option value="all">Todas</option>' + 
+          state.branches.map(function(b) {
+            return '<option value="' + escapeHtml(b.nombre) + '">' + escapeHtml(b.nombre) + '</option>';
+          }).join('');
+        
+        if (current && current !== 'all') {
+          els.branchFilter.value = current;
         }
+      }
 
-        function applyFilters() {
-            const sucursal = document.getElementById('sucursalSelect').value;
-            const depto = document.getElementById('departamentoSelect').value;
-            const fechaDesde = document.getElementById('fechaDesde').value;
-            const fechaHasta = document.getElementById('fechaHasta').value;
+      function getFilteredBranches() {
+        var filter = els.branchFilter.value;
+        if (filter === 'all') return state.branches;
+        return state.branches.filter(function(b) { return b.nombre === filter; });
+      }
 
-            filteredData = rawVentas.filter(v => {
-                if (sucursal !== 'todas' && v.Sucursal !== sucursal) return false;
-                if (depto !== 'todos' && v.Departamento !== depto) return false;
-                const fecha = new Date(v.Fecha);
-                if (fechaDesde) {
-                    const desde = new Date(fechaDesde + 'T00:00:00');
-                    if (fecha < desde) return false;
+      function renderBranchCharts() {
+        renderBranchComparisonChart();
+        renderBranchGrowthChart();
+        renderTopBranchesChart();
+      }
+
+      function renderBranchComparisonChart() {
+        destroyChart('branchComparison');
+        
+        var branches = getFilteredBranches();
+
+        var ctx = $('chartBranchComparison');
+        state.charts.branchComparison = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: branches.map(function(b) { return b.nombre; }),
+            datasets: [
+              {
+                label: 'Ventas',
+                data: branches.map(function(b) { return b.monto; }),
+                backgroundColor: '#34d399',
+                borderRadius: 6
+              },
+              {
+                label: 'Utilidad',
+                data: branches.map(function(b) { return b.utilidad; }),
+                backgroundColor: '#60a5fa',
+                borderRadius: 6
+              }
+            ]
+          },
+          options: {
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom' },
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    return ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y, 0);
+                  }
                 }
-                if (fechaHasta) {
-                    const hasta = new Date(fechaHasta + 'T23:59:59');
-                    if (fecha > hasta) return false;
+              }
+            },
+            scales: {
+              y: {
+                ticks: {
+                  callback: function(value) { return fmtNum(value, 0); }
                 }
-                return true;
-            });
-
-            renderTable();
-            updateCharts();
-        }
-
-        function renderTable() {
-            const tbody = document.getElementById('tableBody');
-            tbody.innerHTML = '';
-            document.getElementById('registroCount').textContent = '(' + filteredData.length + ' registros)';
-
-            filteredData.forEach(v => {
-                const tr = document.createElement('tr');
-                const fecha = new Date(v.Fecha);
-                const fechaStr = fecha.toLocaleDateString('es-MX') + ' ' + fecha.toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'});
-                tr.innerHTML = '<td>' + fechaStr + '</td><td>' + v.Sucursal + '</td><td>' + v.Departamento + '</td><td>' + v.Diferencia.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>$' + v.Subtotal.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>' + v.Cantidad.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>$' + v.Utilidad.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>' + v.NCosto.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>$' + v.Precio.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>$' + v.Costo.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>' + v.UtilidadPer.toFixed(2) + '%</td><td>$' + v.Total.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td><td>$' + v.CostoOferta.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</td>';
-                tbody.appendChild(tr);
-            });
-        }
-
-        function renderKPIs() {
-            const totalMonto = filteredData.reduce((sum, v) => sum + v.Subtotal, 0);
-            const totalCosto = filteredData.reduce((sum, v) => sum + v.Costo, 0);
-            const totalUtilidad = filteredData.reduce((sum, v) => sum + v.Utilidad, 0);
-            const margenPromedio = totalMonto > 0 ? (totalUtilidad / totalMonto) * 100 : 0;
-            const deptosUnicos = new Set(filteredData.map(v => v.Departamento)).size;
-
-            document.getElementById('kpiContainer').innerHTML = '<div class="kpi-card"><div class="kpi-label">Monto Total</div><div class="kpi-value">$' + totalMonto.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</div></div><div class="kpi-card cost"><div class="kpi-label">Costo Total</div><div class="kpi-value">$' + totalCosto.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</div></div><div class="kpi-card profit"><div class="kpi-label">Utilidad Total</div><div class="kpi-value">$' + totalUtilidad.toLocaleString('es-MX', {maximumFractionDigits:2}) + '</div></div><div class="kpi-card"><div class="kpi-label">Margen Promedio</div><div class="kpi-value">' + margenPromedio.toFixed(2) + '%</div></div><div class="kpi-card"><div class="kpi-label">Departamentos</div><div class="kpi-value">' + deptosUnicos + '</div></div>';
-        }
-
-        function createCharts() {
-            const ctxDona = document.getElementById('chartDona').getContext('2d');
-            const ctxBarras = document.getElementById('chartBarras').getContext('2d');
-            const ctxSucursal = document.getElementById('chartSucursal').getContext('2d');
-            const ctxMargen = document.getElementById('chartMargen').getContext('2d');
-
-            charts.dona = new Chart(ctxDona, { type: 'doughnut', data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } } });
-            charts.barras = new Chart(ctxBarras, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: (v) => '$' + v.toLocaleString('es-MX') } } } } });
-            charts.sucursal = new Chart(ctxSucursal, { type: 'bar', data: { labels: [], datasets: [{ label: 'Monto Total', data: [], backgroundColor: '#667eea' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: (v) => '$' + v.toLocaleString('es-MX') } } } } });
-            charts.margen = new Chart(ctxMargen, { type: 'bar', data: { labels: [], datasets: [{ label: 'Margen %%', data: [], backgroundColor: [] }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: (v) => v + '%%' } } } } });
-        }
-
-        function updateCharts() {
-            renderKPIs();
-            const deptoMap = {};
-            filteredData.forEach(v => {
-                if (!deptoMap[v.Departamento]) deptoMap[v.Departamento] = { monto: 0, costo: 0, utilidad: 0 };
-                deptoMap[v.Departamento].monto += v.Subtotal;
-                deptoMap[v.Departamento].costo += v.Costo;
-                deptoMap[v.Departamento].utilidad += v.Utilidad;
-            });
-            const deptos = Object.keys(deptoMap).sort((a,b) => deptoMap[b].monto - deptoMap[a].monto);
-            const montosDepto = deptos.map(d => deptoMap[d].monto);
-            const costosDepto = deptos.map(d => deptoMap[d].costo);
-            const utilidadesDepto = deptos.map(d => deptoMap[d].utilidad);
-            const margenDepto = deptos.map(d => deptoMap[d].monto > 0 ? (deptoMap[d].utilidad / deptoMap[d].monto) * 100 : 0);
-            const colores = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#00f2fe', '#43e97b', '#fa709a', '#fee140', '#30cfd0', '#a8edea'];
-
-            charts.dona.data.labels = deptos;
-            charts.dona.data.datasets[0].data = montosDepto;
-            charts.dona.data.datasets[0].backgroundColor = colores.slice(0, deptos.length);
-            charts.dona.update();
-
-            charts.barras.data.labels = deptos;
-            charts.barras.data.datasets = [
-                { label: 'Monto', data: montosDepto, backgroundColor: '#667eea' },
-                { label: 'Costo', data: costosDepto, backgroundColor: '#ef4444' },
-                { label: 'Utilidad', data: utilidadesDepto, backgroundColor: '#10b981' }
-            ];
-            charts.barras.update();
-
-            const sucursalMap = {};
-            filteredData.forEach(v => {
-                if (!sucursalMap[v.Sucursal]) sucursalMap[v.Sucursal] = { monto: 0 };
-                sucursalMap[v.Sucursal].monto += v.Subtotal;
-            });
-            const sucursales = Object.keys(sucursalMap).sort((a,b) => sucursalMap[b].monto - sucursalMap[a].monto);
-            const montosSucursal = sucursales.map(s => sucursalMap[s].monto);
-            charts.sucursal.data.labels = sucursales;
-            charts.sucursal.data.datasets[0].data = montosSucursal;
-            charts.sucursal.update();
-
-            charts.margen.data.labels = deptos;
-            charts.margen.data.datasets[0].data = margenDepto;
-            charts.margen.data.datasets[0].backgroundColor = colores.slice(0, deptos.length);
-            charts.margen.update();
-        }
-
-        function exportToExcel() {
-            if (filteredData.length === 0) {
-                alert('No hay datos para exportar');
-                return;
+              }
             }
-            const dataForExcel = filteredData.map(v => ({
-                'Fecha': new Date(v.Fecha).toLocaleString('es-MX'),
-                'Sucursal': v.Sucursal,
-                'Departamento': v.Departamento,
-                'Diferencia': v.Diferencia,
-                'Subtotal': v.Subtotal,
-                'Cantidad': v.Cantidad,
-                'Utilidad': v.Utilidad,
-                'NCosto': v.NCosto,
-                'Precio': v.Precio,
-                'Costo': v.Costo,
-                'Utilidad%%': v.UtilidadPer,
-                'Total': v.Total,
-                'CostoOferta': v.CostoOferta
-            }));
-            const ws = XLSX.utils.json_to_sheet(dataForExcel);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Ventas');
-            XLSX.writeFile(wb, 'reporte_ventas.xlsx');
+          }
+        });
+      }
+
+      function renderBranchGrowthChart() {
+        destroyChart('branchGrowth');
+        
+        var branches = getFilteredBranches();
+        var sorted = branches.slice().sort(function(a, b) { return b.crecimiento - a.crecimiento; });
+
+        var ctx = $('chartBranchGrowth');
+        state.charts.branchGrowth = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: sorted.map(function(b) { return b.nombre; }),
+            datasets: [{
+              label: 'Crecimiento %',
+              data: sorted.map(function(b) { return b.crecimiento; }),
+              backgroundColor: sorted.map(function(b) {
+                return b.crecimiento >= 0 ? '#34d399' : '#f87171';
+              }),
+              borderRadius: 6
+            }]
+          },
+          options: {
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    return 'Crecimiento: ' + fmtPct(ctx.parsed.y);
+                  }
+                }
+              }
+            },
+            scales: {
+              y: {
+                ticks: {
+                  callback: function(value) { return value + '%'; }
+                }
+              }
+            }
+          }
+        });
+      }
+
+      function renderTopBranchesChart() {
+        destroyChart('topBranches');
+        
+        var branches = getFilteredBranches();
+        var metric = els.metric.value;
+        els.topBranchMetric.textContent = metricLabels[metric];
+
+        var sorted = branches.slice().sort(function(a, b) {
+          return (b[metric] || 0) - (a[metric] || 0);
+        }).slice(0, 10);
+
+        var ctx = $('chartTopBranches');
+        state.charts.topBranches = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: sorted.map(function(b) { return b.nombre; }),
+            datasets: [{
+              label: metricLabels[metric],
+              data: sorted.map(function(b) { return b[metric] || 0; }),
+              backgroundColor: palette,
+              borderRadius: 6
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false }
+            },
+            scales: {
+              x: {
+                ticks: {
+                  callback: function(value) { return fmtNum(value, 0); }
+                }
+              }
+            }
+          }
+        });
+      }
+
+      function renderDepartamentoCharts() {
+        destroyChart('departamentoTop');
+        destroyChart('departamentoBottom');
+
+        var metric = els.metric.value;
+        els.topMetricLabel.textContent = metricLabels[metric];
+        els.bottomMetricLabel.textContent = metricLabels[metric];
+
+        var sorted = state.departamentos.slice().sort(function(a, b) {
+          return (b[metric] || 0) - (a[metric] || 0);
+        });
+
+        var top = sorted.slice(0, 10);
+        var bottom = sorted.slice(-10).reverse();
+
+        createHorizontalChart('chartDepartamentoTop', top, metric, true);
+        createHorizontalChart('chartDepartamentoBottom', bottom, metric, false);
+      }
+
+      function createHorizontalChart(canvasId, rows, metric, isTop) {
+        var ctx = $(canvasId);
+        var key = canvasId === 'chartDepartamentoTop' ? 'departamentoTop' : 'departamentoBottom';
+
+        state.charts[key] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: rows.map(function(r) { return r.nombre; }),
+            datasets: [{
+              label: metricLabels[metric],
+              data: rows.map(function(r) { return r[metric] || 0; }),
+              backgroundColor: isTop ? '#60a5fa' : '#fbbf24',
+              borderRadius: 6
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false }
+            },
+            scales: {
+              x: {
+                ticks: {
+                  callback: function(value) { return fmtNum(value, 0); }
+                }
+              }
+            }
+          }
+        });
+      }
+
+      function renderBranchTable() {
+        var branches = getFilteredBranches().slice().sort(function(a, b) {
+          return b.monto - a.monto;
+        });
+
+        var html = branches.map(function(b) {
+          return '<tr class="hover:bg-slate-800/40">' +
+            '<td class="tbody-cell font-medium">' + escapeHtml(b.nombre) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtNum(b.monto, 2) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtNum(b.costo, 2) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtNum(b.utilidad, 2) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtPct(b.margen) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtPct(b.participacion) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtPct(b.crecimiento) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtNum(b.departamentos, 0) + '</td>' +
+            '</tr>';
+        }).join('');
+
+        els.branchTableBody.innerHTML = html;
+      }
+
+      function renderDepartamentoTable() {
+        var rows = state.departamentos.slice().sort(function(a, b) {
+          return b.monto - a.monto;
+        });
+
+        var html = rows.map(function(r) {
+          return '<tr class="hover:bg-slate-800/40">' +
+            '<td class="tbody-cell font-medium">' + escapeHtml(r.nombre) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtNum(r.monto, 2) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtNum(r.costo, 2) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtNum(r.utilidad, 2) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtPct(r.margen) + '</td>' +
+            '<td class="tbody-cell-right">' + fmtPct(r.participacion) + '</td>' +
+            '</tr>';
+        }).join('');
+
+        els.departamentoBody.innerHTML = html;
+      }
+
+      function exportExcel() {
+        if (typeof XLSX === 'undefined') {
+          alert('No se pudo cargar SheetJS.');
+          return;
         }
 
-        document.getElementById('sucursalSelect').addEventListener('change', applyFilters);
-        document.getElementById('departamentoSelect').addEventListener('change', applyFilters);
-        document.getElementById('fechaDesde').addEventListener('change', applyFilters);
-        document.getElementById('fechaHasta').addEventListener('change', applyFilters);
-    </script>
+        var wb = XLSX.utils.book_new();
+
+        var branchData = getFilteredBranches().map(function(b) {
+          return {
+            'Sucursal': b.nombre,
+            'Ventas': round2(b.monto),
+            'Costo': round2(b.costo),
+            'Utilidad': round2(b.utilidad),
+            'Margen %': round2(b.margen),
+            'Participación %': round2(b.participacion),
+            'Crecimiento %': round2(b.crecimiento),
+            'Departamentos': b.departamentos
+          };
+        });
+
+        var wsBranch = XLSX.utils.json_to_sheet(branchData);
+        XLSX.utils.book_append_sheet(wb, wsBranch, 'Sucursales');
+
+        var departamentoData = state.departamentos.map(function(d) {
+          return {
+            'Departamento': d.nombre,
+            'Ventas': round2(d.monto),
+            'Costo': round2(d.costo),
+            'Utilidad': round2(d.utilidad),
+            'Margen %': round2(d.margen),
+            'Participación %': round2(d.participacion),
+            'Alcance Sucursales': d.alcance
+          };
+        });
+
+        var wsDepartamento = XLSX.utils.json_to_sheet(departamentoData);
+        XLSX.utils.book_append_sheet(wb, wsDepartamento, 'Departamentos');
+
+        XLSX.writeFile(wb, 'dashboard_departamento.xlsx');
+      }
+
+      function num(v) {
+        if (v === null || v === undefined) return 0;
+        if (typeof v === 'number') return isFinite(v) ? v : 0;
+        var n = Number(v);
+        return isFinite(n) ? n : 0;
+      }
+
+      function safeDiv(a, b) {
+        return b ? a / b : 0;
+      }
+
+      function round2(n) {
+        return Math.round((isFinite(n) ? n : 0) * 100) / 100;
+      }
+
+      function fmtNum(n, dec) {
+        dec = (dec === null || dec === undefined) ? 2 : dec;
+        var value = isFinite(n) ? n : 0;
+        try {
+          return new Intl.NumberFormat('es', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: dec
+          }).format(value);
+        } catch (e) {
+          return value.toFixed(dec);
+        }
+      }
+
+      function fmtPct(n) {
+        if (n === null || n === undefined || !isFinite(n)) return 'N/A';
+        return fmtNum(n, 2) + '%';
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function(c) {
+          if (c === '&') return '&amp;';
+          if (c === '<') return '&lt;';
+          if (c === '>') return '&gt;';
+          if (c === '"') return '&quot;';
+          return '&#39;';
+        });
+      }
+
+      function destroyChart(key) {
+        if (state.charts[key]) {
+          state.charts[key].destroy();
+          delete state.charts[key];
+        }
+      }
+
+      function hideLoader() {
+        if (els.loader) els.loader.classList.add('hidden');
+      }
+
+      function showError(msg) {
+        console.error('Error:', msg);
+        if (els.loader) {
+          els.loader.classList.remove('hidden');
+          var errorDiv = document.createElement('div');
+          errorDiv.className = 'text-rose-400 text-sm mt-4';
+          errorDiv.textContent = msg;
+          els.loader.appendChild(errorDiv);
+        }
+      }
+    })();
+  </script>
 </body>
-</html>`, string(dataJSON), string(ventasJSON))
+</html>
+        `,
+		"__RAW_DATA__",
+		string(dataJSON),
+		1,
+	)
 
 	return []byte(html), nil
 }
